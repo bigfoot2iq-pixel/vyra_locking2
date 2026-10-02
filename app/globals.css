@@ -2476,3 +2476,21 @@ select.input {
   letter-spacing: 0;
   text-shadow: none;
 }
+
+/* guardian art fades in over a shimmer once the image has loaded */
+.card-art {
+  background: linear-gradient(90deg, var(--panel) 0%, var(--panel-2) 50%, var(--panel) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.card-art img {
+  opacity: 0;
+  transition:
+    opacity 0.5s var(--ease),
+    filter 0.45s var(--ease);
+}
+
+.card-art img.is-loaded {
+  opacity: 1;
+}

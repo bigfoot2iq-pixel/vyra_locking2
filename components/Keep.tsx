@@ -139,6 +139,12 @@ export function Keep() {
           still work.
         </p>
       )}
+      {p.keepAllowed === false && (
+        <p className="notice notice-warn" style={{ marginTop: 18 }}>
+          <span className="gem-sm" /> Locking opens soon. The VYRA collection still has to enable the Keep contract. Claiming
+          and unlocking are not affected.
+        </p>
+      )}
       {!p.isLoading && !p.token && (
         <p className="notice" style={{ marginTop: 18 }}>
           <span className="gem-sm" /> The Keep is being prepared. The token hasn&apos;t been set yet.

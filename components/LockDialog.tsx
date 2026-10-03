@@ -17,6 +17,8 @@ import { TierBadge, tierStyle } from "./TierBadge";
 
 const BPS = 10_000n;
 
+type StepKey = "nft" | "token" | "act";
+
 function safeParse(v: string, decimals: number): bigint | undefined {
   try {
     return v.trim() === "" ? undefined : parseUnits(v.trim() as `${number}`, decimals);
@@ -61,8 +63,18 @@ export function LockDialog({
   const daily = (a * rate) / BPS;
   const total = daily * days;
 
-  const needNft = mode === "lock" && !p.nftApproved;
-  const needToken = (p.allowanceLocking ?? 0n) < pay;
+  // Approvals made in this dialog count right away, even if the RPC hasn't caught up yet.
+  const [granted, setGranted] = useState(false);
+  const [approved, setApproved] = useState(0n);
+  const [running, setRunning] = useState<StepKey | null>(null);
+  const [error, setError] = useState<string>();
+  const [planned, setPlanned] = useState(0);
+
+  const checking = (mode === "lock" && p.nftApproved === undefined) || p.allowanceLocking === undefined;
+  const needNft = mode === "lock" && !p.nftApproved && !granted;
+  const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
+  // Renewing never moves the NFT, so only new locks depend on the collection's allow-list.
+  const blocked = mode === "lock" && p.keepAllowed === false;
   const short = p.balance !== undefined && p.balance < pay;
   // the payment lands in the pool before this lock's rewards are reserved
   const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + pay;
@@ -79,45 +91,64 @@ export function LockDialog({
     setInput(formatUnits(min + ((max - min) * BigInt(permille)) / 1000n, p.decimals));
   }
 
+  const steps: { key: StepKey; label: string; needed: boolean }[] = [
+    ...(mode === "lock" ? [{ key: "nft" as const, label: "Let the Keep hold your guardian", needed: needNft }] : []),
+    { key: "token", label: `Approve ${fmtToken(pay, p.decimals)} ${p.symbol}`, needed: needToken },
+    { key: "act", label: mode === "lock" ? `Lock at Level ${level + 1}` : `Renew at Level ${level + 1}`, needed: true },
+  ];
+  const todo = steps.filter((s) => s.needed);
+
+  /** Runs every step still needed, one wallet confirmation each, without extra clicks. */
   async function act() {
     if (!amount) return;
-    if (needNft) {
-      await send("Keep access granted", {
-        address: addresses.nft!,
-        abi: erc721Abi,
-        functionName: "setApprovalForAll",
-        args: [addresses.locking!, true],
-      });
-      return;
-    }
-    if (needToken) {
-      await send(`${p.symbol} approved`, {
-        address: p.token!,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [addresses.locking!, pay],
-      });
-      return;
-    }
-    const ok = await send(mode === "lock" ? "Guardian locked" : "Lock renewed", {
-      address: addresses.locking!,
-      abi: vyraLockingAbi,
-      functionName: mode,
-      args: [[g.id], [amount], [level]],
-    });
-    if (ok) {
-      onClose();
-      celebrate({ kind: mode, tokenId: g.id, tier: g.tier, level, image, days: Number(days) });
+    setError(undefined);
+    setPlanned(todo.length);
+    const onError = setError;
+    try {
+      if (needNft) {
+        setRunning("nft");
+        const ok = await send(
+          "Keep access granted",
+          { address: addresses.nft!, abi: erc721Abi, functionName: "setApprovalForAll", args: [addresses.locking!, true] },
+          { onError },
+        );
+        if (!ok) return;
+        setGranted(true);
+      }
+      if (needToken) {
+        setRunning("token");
+        const ok = await send(
+          `${p.symbol} approved`,
+          { address: p.token!, abi: erc20Abi, functionName: "approve", args: [addresses.locking!, pay] },
+          { onError },
+        );
+        if (!ok) return;
+        setApproved(pay);
+      }
+      setRunning("act");
+      const ok = await send(
+        mode === "lock" ? "Guardian locked" : "Lock renewed",
+        { address: addresses.locking!, abi: vyraLockingAbi, functionName: mode, args: [[g.id], [amount], [level]] },
+        { onError },
+      );
+      if (ok) {
+        onClose();
+        celebrate({ kind: mode, tokenId: g.id, tier: g.tier, level, image, days: Number(days) });
+      }
+    } finally {
+      setRunning(null);
     }
   }
 
-  const label = needNft
-    ? "Let the Keep hold your guardian"
-    : needToken
-      ? `Approve ${fmtToken(pay, p.decimals)} ${p.symbol}`
-      : mode === "lock"
-        ? `Lock at Level ${level + 1}`
-        : `Renew at Level ${level + 1}`;
+  const label = checking
+    ? "Checking your wallet…"
+    : blocked
+      ? "Locking opens soon"
+      : running
+        ? `Step ${planned - todo.length + 1} of ${planned} · confirm in wallet`
+        : todo.length > 1
+          ? `${steps[steps.length - 1].label} · ${todo.length} quick steps`
+          : steps[steps.length - 1].label;
 
   return (
     <Dialog
@@ -226,27 +257,36 @@ export function LockDialog({
           <p className="notice notice-warn">The reward pool can&apos;t back this much tribute right now. Try a smaller amount.</p>
         )}
 
-        <div className="steps" style={{ margin: "18px 0" }}>
-          {mode === "lock" && (
-            <div className={`step-line ${needNft ? "active" : "done"}`}>
-              <span className="gem-sm" /> Let the Keep hold your guardian
-            </div>
-          )}
-          <div className={`step-line ${needNft ? "" : needToken ? "active" : "done"}`}>
-            <span className="gem-sm" /> Approve {fmtToken(pay, p.decimals)} {p.symbol}
+        {blocked && (
+          <p className="notice notice-warn">
+            <span className="gem-sm" /> The VYRA collection hasn&apos;t enabled the Keep contract yet, so guardians can&apos;t
+            be locked right now. Nothing will be charged. This opens as soon as the collection owner allows it.
+          </p>
+        )}
+        {error && <p className="notice notice-danger">{error}</p>}
+
+        {!checking && !blocked && (todo.length > 1 || (running !== null && planned > 1)) && (
+          <div className="steps" style={{ margin: "18px 0" }}>
+            {steps.map((s) => {
+              const done = !s.needed;
+              const active = running === s.key;
+              return (
+                <div key={s.key} className={`step-line ${done ? "done" : active ? "active" : ""}`}>
+                  {active ? <span className="spinner" /> : <span className="gem-sm" />} {s.label}
+                  {done && <span className="step-check">✓</span>}
+                </div>
+              );
+            })}
           </div>
-          <div className={`step-line ${!needNft && !needToken ? "active" : ""}`}>
-            <span className="gem-sm" /> {mode === "lock" ? "Lock" : "Renew"}
-          </div>
-        </div>
+        )}
 
         <button
           className="gbtn gbtn-lock gbtn-block gbtn-lg"
-          disabled={!!busy || !inRange || short || poolShort || p.paused}
+          disabled={!!busy || checking || blocked || !inRange || short || poolShort || p.paused}
           onClick={act}
         >
-          {busy ? <span className="spinner" /> : mode === "lock" ? <LockIcon /> : <RenewIcon />}
-          {busy ?? label}
+          {busy || checking ? <span className="spinner" /> : mode === "lock" ? <LockIcon /> : <RenewIcon />}
+          {label}
         </button>
         <p className="faint" style={{ fontSize: "0.76rem", textAlign: "center", marginTop: 12 }}>
           Your guardian stays in the Keep for {days.toString()} days and cannot leave early.

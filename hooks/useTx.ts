@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { BaseError, ContractFunctionRevertedError } from "viem";
 import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
+import type { Abi } from "viem";
 import { activeChain } from "@/lib/env";
 import { useToast } from "@/components/Toaster";
 
@@ -25,9 +26,17 @@ const FRIENDLY: Record<string, string> = {
   OwnableUnauthorizedAccount: "Only the owner can do this.",
   ERC20InsufficientBalance: "Not enough tokens.",
   ERC20InsufficientAllowance: "Token allowance too low.",
+  AlreadyLocked: "This guardian is already locked.",
 };
 
+/** OpenSea's transfer validator on the VYRA collection: the Keep contract isn't on its allow-list yet. */
+const COLLECTION_BLOCKED = "0x1de5204e";
+const COLLECTION_BLOCKED_MSG =
+  "The VYRA collection hasn't allowed the Keep contract to hold guardians yet. Nothing was sent. Try again once the collection owner has enabled it.";
+
 export function errorMessage(e: unknown): string {
+  const raw = e instanceof BaseError ? `${e.message} ${e.details ?? ""}` : String(e);
+  if (raw.toLowerCase().includes(COLLECTION_BLOCKED)) return COLLECTION_BLOCKED_MSG;
   if (e instanceof BaseError) {
     const revert = e.walk((x) => x instanceof ContractFunctionRevertedError);
     if (revert instanceof ContractFunctionRevertedError) {
@@ -36,25 +45,35 @@ export function errorMessage(e: unknown): string {
       if (name) return name;
     }
     if (/user rejected|denied/i.test(e.message)) return "Rejected in wallet.";
+    if (/insufficient funds/i.test(e.message)) return "Not enough ETH on Ink for gas.";
     return e.shortMessage;
   }
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Send a contract write, wait for the receipt, toast the outcome, refresh all reads. */
+/**
+ * Dry-run a contract write, send it, wait for the receipt, toast the outcome, refresh all reads.
+ * The dry run catches reverts before the wallet opens, so users see a plain reason instead of
+ * the wallet's generic "simulation failed".
+ */
 export function useTx() {
   const { writeContractAsync } = useWriteContract();
   const client = usePublicClient();
-  const { chainId } = useAccount();
+  const { chainId, address: account } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const qc = useQueryClient();
   const { push } = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function send(label: string, request: Parameters<typeof writeContractAsync>[0]): Promise<boolean> {
+  async function send(
+    label: string,
+    request: Parameters<typeof writeContractAsync>[0],
+    opts: { onError?: (message: string) => void } = {},
+  ): Promise<boolean> {
     setBusy(label);
     try {
       if (chainId !== activeChain.id) await switchChainAsync({ chainId: activeChain.id });
+      await client!.simulateContract({ ...(request as { address: `0x${string}`; abi: Abi; functionName: string; args?: readonly unknown[] }), account });
       const hash = await writeContractAsync(request);
       push({ kind: "info", title: `${label}…`, body: "Waiting for confirmation.", hash });
       const receipt = await client!.waitForTransactionReceipt({ hash });
@@ -63,7 +82,9 @@ export function useTx() {
       await qc.invalidateQueries();
       return true;
     } catch (e) {
-      push({ kind: "error", title: `${label} failed`, body: errorMessage(e) });
+      const message = errorMessage(e);
+      push({ kind: "error", title: `${label} failed`, body: message });
+      opts.onError?.(message);
       return false;
     } finally {
       setBusy(null);

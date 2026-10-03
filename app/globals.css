@@ -2494,3 +2494,13 @@ select.input {
 .card-art img.is-loaded {
   opacity: 1;
 }
+
+.step-line .spinner {
+  width: 12px;
+  height: 12px;
+}
+
+.step-check {
+  margin-left: auto;
+  color: var(--ok);
+}

@@ -1,7 +1,7 @@
 "use client";
 
-import { erc20Abi, erc721Abi, zeroAddress, type Address } from "viem";
-import { useAccount, useReadContracts } from "wagmi";
+import { erc20Abi, erc721Abi, parseAbi, zeroAddress, type Address } from "viem";
+import { useAccount, useReadContract, useReadContracts } from "wagmi";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
 import { addresses, isConfigured } from "@/lib/env";
 
@@ -9,6 +9,12 @@ const locking = { address: addresses.locking!, abi: vyraLockingAbi } as const;
 const pool = { address: addresses.pool!, abi: vyraRewardPoolAbi } as const;
 
 export const LEVEL_COUNT = 5;
+
+// Creator-token collections (OpenSea's ERC721-C) only let allow-listed contracts move NFTs.
+const validatorAbi = parseAbi([
+  "function getTransferValidator() view returns (address)",
+  "function isAccountWhitelistedByCollection(address collection, address account) view returns (bool)",
+]);
 
 export interface Level {
   minAmount: bigint;
@@ -69,6 +75,23 @@ export function useProtocol() {
     query: { enabled: isConfigured && tokenSet, refetchInterval: 30_000 },
   });
 
+  const validator = useReadContract({
+    address: addresses.nft,
+    abi: validatorAbi,
+    functionName: "getTransferValidator",
+    query: { enabled: isConfigured, retry: false, staleTime: Infinity },
+  });
+  const validatorAddr = validator.data && validator.data !== zeroAddress ? validator.data : undefined;
+  const allowList = useReadContract({
+    address: validatorAddr,
+    abi: validatorAbi,
+    functionName: "isAccountWhitelistedByCollection",
+    args: [addresses.nft!, addresses.locking!],
+    query: { enabled: !!validatorAddr, refetchInterval: 30_000 },
+  });
+  // No validator (or the call isn't supported) means no transfer restrictions.
+  const keepAllowed = validator.isError || (validator.isSuccess && !validatorAddr) ? true : allowList.data;
+
   const t = tok.data;
   const poolBalance = t?.[5];
   const totalReserved = d?.[11];
@@ -106,6 +129,8 @@ export function useProtocol() {
           : 0n
         : undefined,
     nftApproved: t?.[6],
+    /** Whether the NFT collection lets the locking contract move guardians; undefined while loading. */
+    keepAllowed,
   };
 }
 

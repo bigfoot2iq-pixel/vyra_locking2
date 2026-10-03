@@ -70,7 +70,12 @@ export function LevelUpDialog({
   const newDaily = (a * rate) / BPS;
   const extra = (newDaily - oldDaily) * remaining;
 
-  const needToken = (p.allowanceLocking ?? 0n) < pay;
+  // An approval made in this dialog counts right away, even if the RPC hasn't caught up yet.
+  const [approved, setApproved] = useState(0n);
+  const [step, setStep] = useState<"token" | "up" | null>(null);
+  const [error, setError] = useState<string>();
+  const checking = p.allowanceLocking === undefined;
+  const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const short = p.balance !== undefined && p.balance < pay;
   const pending = g.pending ?? 0n;
   const endDate = new Date(l.end * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -80,28 +85,48 @@ export function LevelUpDialog({
     setInput(formatUnits(levels[i].maxAmount, p.decimals));
   }
 
+  /** Approves (if needed) and levels up in one click. */
   async function act() {
     if (!amount || level < 0) return;
-    if (needToken) {
-      await send(`${p.symbol} approved`, {
-        address: p.token!,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [addresses.locking!, pay],
-      });
-      return;
-    }
-    const ok = await send(`Level ${level + 1} reached`, {
-      address: addresses.locking!,
-      abi: vyraLockingAbi,
-      functionName: "levelUp",
-      args: [g.id, level, amount],
-    });
-    if (ok) {
-      onClose();
-      celebrate({ kind: "levelup", tokenId: g.id, tier: l.tier, level, image });
+    setError(undefined);
+    const steps = needToken ? 2 : 1;
+    try {
+      if (needToken) {
+        setStep("token");
+        const ok = await send(
+          `${p.symbol} approved`,
+          { address: p.token!, abi: erc20Abi, functionName: "approve", args: [addresses.locking!, pay] },
+          { onError: setError },
+        );
+        if (!ok) return;
+        setApproved(pay);
+      }
+      setStep(steps === 2 ? "up" : null);
+      const ok = await send(
+        `Level ${level + 1} reached`,
+        { address: addresses.locking!, abi: vyraLockingAbi, functionName: "levelUp", args: [g.id, level, amount] },
+        { onError: setError },
+      );
+      if (ok) {
+        onClose();
+        celebrate({ kind: "levelup", tokenId: g.id, tier: l.tier, level, image });
+      }
+    } finally {
+      setStep(null);
     }
   }
+
+  const label = checking
+    ? "Checking your wallet…"
+    : step === "token"
+      ? "Step 1 of 2 · approve in wallet"
+      : step === "up"
+        ? "Step 2 of 2 · confirm in wallet"
+        : busy
+          ? "Confirm in wallet"
+          : needToken
+            ? `Level up to ${level + 1} · 2 quick steps`
+            : `Level up to ${level + 1}`;
 
   return (
     <Dialog title={`Guardian #${g.id.toString().padStart(4, "0")}`} kicker="◆ Level up" image={image} onClose={onClose}>
@@ -205,9 +230,14 @@ export function LevelUpDialog({
             {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
             {short && <p className="notice notice-danger">Not enough {p.symbol} in your wallet.</p>}
 
-            <button className="gbtn gbtn-up gbtn-block gbtn-lg" disabled={!!busy || !inRange || short || p.paused} onClick={act}>
-              {busy ? <span className="spinner" /> : <LevelUpIcon />}
-              {busy ?? (needToken ? `Approve ${fmtToken(pay, p.decimals)} ${p.symbol}` : `Level up to ${level + 1}`)}
+            {error && <p className="notice notice-danger">{error}</p>}
+            <button
+              className="gbtn gbtn-up gbtn-block gbtn-lg"
+              disabled={!!busy || checking || !inRange || short || p.paused}
+              onClick={act}
+            >
+              {busy || checking ? <span className="spinner" /> : <LevelUpIcon />}
+              {label}
             </button>
           </>
         )}

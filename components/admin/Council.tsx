@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { encodeFunctionData, erc20Abi, formatUnits, isAddress, parseUnits, type Abi, type Address } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { useToast } from "@/components/Toaster";
 import { LEVEL_COUNT, useProtocol, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
 import { addresses, isConfigured } from "@/lib/env";
-import { fmtToken, fmtUsd, shortAddr } from "@/lib/format";
-import { TIERS } from "@/lib/tiers";
+import { DAY, fmtDuration, fmtToken, fmtUsd, shortAddr } from "@/lib/format";
+import { TIERS, tierOf } from "@/lib/tiers";
+import { useChainNow } from "@/hooks/useChainNow";
 import rarity from "@/contracts/data/vyra-rarity.json";
 
 const same = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
@@ -74,6 +75,7 @@ export function Council() {
         {p.token && <TiersCard p={p} />}
         <RarityCard p={p} />
         <Status p={p} />
+        <EmergencyCard p={p} />
         <PeriodCard p={p} />
       </div>
     </section>
@@ -477,6 +479,101 @@ function Status({ p }: { p: Protocol }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- emergency gate
+
+/** Guardians listed (and returned per "Return all" transaction) at a time; keeps calls in gas limits. */
+const EMERGENCY_BATCH = 50n;
+
+function EmergencyCard({ p }: { p: Protocol }) {
+  const { run, busy } = useOwnerAction(p.owner);
+  const now = useChainNow();
+  const locking = { address: addresses.locking!, abi: vyraLockingAbi } as const;
+  const count = useReadContract({ ...locking, functionName: "allLockedCount", query: { refetchInterval: 30_000 } }).data ?? 0n;
+  const ids = useReadContract({
+    ...locking,
+    functionName: "allLockedTokens",
+    args: [0n, EMERGENCY_BATCH],
+    query: { enabled: count > 0n, refetchInterval: 30_000 },
+  }).data;
+  const locks = useReadContract({
+    ...locking,
+    functionName: "locksOf",
+    args: [ids ?? []],
+    query: { enabled: !!ids?.length, refetchInterval: 30_000 },
+  }).data;
+
+  const rows = (ids ?? []).map((id, i) => ({ id, lock: locks?.[i] })).filter((r) => r.lock);
+  const returnAll = () =>
+    confirm(
+      `Return ${count > EMERGENCY_BATCH ? `the next ${EMERGENCY_BATCH}` : `all ${count}`} locked guardians to their holders now? ` +
+        "Each holder is paid their full period's reward. This cannot be undone.",
+    ) && run("Guardians returned", addresses.locking!, vyraLockingAbi, "emergencyReturnAll", [EMERGENCY_BATCH]);
+
+  return (
+    <div className="admin-card plate wide">
+      <h3>Emergency gate</h3>
+      <p>
+        Send locked guardians straight back to their holders before their period ends. Each holder is paid the full
+        period&apos;s reward, which the pool reserved when the lock opened, so nobody loses tribute. Works while paused; pause
+        first if new locks should stop too.
+      </p>
+      <div className="admin-actions" style={{ marginBottom: 14 }}>
+        <span className="pill">{count.toString()} locked</span>
+        <button className="btn btn-sm" disabled={count === 0n || !!busy} onClick={returnAll}>
+          {count > EMERGENCY_BATCH ? `Return next ${EMERGENCY_BATCH}` : "Return all"}
+        </button>
+      </div>
+      {rows.length > 0 && (
+        <div className="table-scroll">
+          <table className="table num">
+            <thead>
+              <tr>
+                <th>Guardian</th>
+                <th>Holder</th>
+                <th>Tier · level</th>
+                <th>Locked</th>
+                <th>Ends</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ id, lock }) => {
+                const end = Number(lock!.start) + lock!.durationDays * DAY;
+                const left = end - now;
+                return (
+                  <tr key={id.toString()}>
+                    <td>#{id.toString()}</td>
+                    <td>{shortAddr(lock!.owner)}</td>
+                    <td style={{ color: tierOf(lock!.tier).color }}>
+                      {tierOf(lock!.tier).name} · {lock!.level + 1}
+                    </td>
+                    <td>
+                      {fmtToken(lock!.amount, p.decimals, 2)} {p.symbol}
+                    </td>
+                    <td>{left > 0 ? `in ${fmtDuration(left)}` : "ended"}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        disabled={!!busy}
+                        onClick={() =>
+                          confirm(`Return #${id} to ${lock!.owner} now, with its full period's reward?`) &&
+                          run(`Guardian #${id} returned`, addresses.locking!, vyraLockingAbi, "emergencyReturn", [[id]])
+                        }
+                      >
+                        Return
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

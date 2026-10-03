@@ -12,7 +12,7 @@ import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 ///         anyone may deposit, and holders' daily rewards are paid out of it.
 /// @dev Security model:
 ///      - Tokens leave only three ways: reward claims (to the lock owner), settlement on
-///        unlock/renew (to the lock owner), and `withdrawSurplus` by the owner.
+///        unlock/renew/emergency return (to the lock owner), and `withdrawSurplus` by the owner.
 ///      - When a lock opens, its full-period reward is reserved. A lock cannot open unless the
 ///        free balance covers it, and the owner can only withdraw what is NOT reserved. So even
 ///        a compromised owner key cannot take rewards already promised to holders.
@@ -175,6 +175,15 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         if (amount > 0) token().safeTransfer(l.owner, amount);
     }
 
+    /// @notice Pay out the whole period's remaining reward, days not yet elapsed included, before
+    ///         the owner hands a guardian back early. It was reserved when the lock opened, so the
+    ///         pool always covers it and the holder is never short-changed by an emergency return.
+    function settleFull(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 amount) {
+        IVyraLocking.Lock memory l = locking.lockOf(tokenId);
+        amount = _accrueTo(tokenId, l, l.durationDays);
+        if (amount > 0) token().safeTransfer(l.owner, amount);
+    }
+
     // ------------------------------------------------------------------
     // Owner
     // ------------------------------------------------------------------
@@ -214,7 +223,11 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // ------------------------------------------------------------------
 
     function _accrue(uint256 tokenId, IVyraLocking.Lock memory l) internal returns (uint256 amount) {
-        uint16 due = daysElapsed(l);
+        return _accrueTo(tokenId, l, daysElapsed(l));
+    }
+
+    /// @dev Pays `l` up to day `due` (at most its duration) and draws it from the reserve.
+    function _accrueTo(uint256 tokenId, IVyraLocking.Lock memory l, uint16 due) internal returns (uint256 amount) {
         uint16 done = claimedDays[l.lockId];
         if (due <= done) return 0;
         amount = rewardPerDay(l) * (due - done);

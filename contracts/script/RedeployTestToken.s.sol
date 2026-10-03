@@ -3,15 +3,18 @@ pragma solidity 0.8.28;
 
 import {console} from "forge-std/Script.sol";
 import {RarityData} from "./RarityData.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {VyraLocking} from "../src/VyraLocking.sol";
 import {VyraRewardPool} from "../src/VyraRewardPool.sol";
 import {VyraTestToken} from "../src/test-token/VyraTestToken.sol";
 
-/// @notice Full Keep deployment on a fresh test token, owned by the deployer. Env:
+/// @notice Full Keep deployment on a test token, owned by the deployer. Env:
 ///   NFT_ADDRESS   VYRA collection
+///   TOKEN_ADDRESS optional existing ERC-20 to use (18 decimals, no transfer fees); the deployer
+///                 must hold the seed. Unset: deploys tVYRA with 1B to the deployer.
 ///   SEED          optional pool seed in whole tokens (default 100000)
-/// Deploys tVYRA (1B to the deployer), pool and locking, wires them, uploads the rarity map,
+/// Deploys pool and locking (and tVYRA if needed), wires them, uploads the rarity map,
 /// checks it word by word against data/vyra-rarity.json, freezes it, sets the token and the
 /// tier table, and seeds the pool. The collection owner must still allow-list the new locking
 /// contract on OpenSea's transfer validator.
@@ -22,7 +25,8 @@ contract RedeployTestToken is RarityData {
 
         vm.startBroadcast();
         address me = msg.sender;
-        VyraTestToken token = new VyraTestToken(1_000_000_000e18);
+        address existing = vm.envOr("TOKEN_ADDRESS", address(0));
+        IERC20 token = existing != address(0) ? IERC20(existing) : new VyraTestToken(1_000_000_000e18);
         VyraRewardPool pool = new VyraRewardPool(me);
         VyraLocking locking = new VyraLocking(me, IERC721(nft), address(pool));
         pool.setLocking(address(locking));
@@ -50,7 +54,7 @@ contract RedeployTestToken is RarityData {
         }
         vm.stopBroadcast();
 
-        console.log("tVYRA token:   ", address(token));
+        console.log("Token:         ", address(token));
         console.log("VyraRewardPool:", address(pool));
         console.log("VyraLocking:   ", address(locking));
         console.log("Owner:         ", me);

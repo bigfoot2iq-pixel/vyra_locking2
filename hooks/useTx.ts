@@ -27,6 +27,7 @@ const FRIENDLY: Record<string, string> = {
   ERC20InsufficientBalance: "Not enough tokens.",
   ERC20InsufficientAllowance: "Token allowance too low.",
   AlreadyLocked: "This guardian is already locked.",
+  NotLocked: "This guardian isn't locked (it may already be back with its holder).",
 };
 
 /** OpenSea's transfer validator on the VYRA collection: the Keep contract isn't on its allow-list yet. */

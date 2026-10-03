@@ -15,6 +15,7 @@ interface IRewardPool {
     function settle(uint256 tokenId) external returns (uint256);
     function release(uint256 tokenId) external;
     function reserveRemaining(uint256 tokenId) external;
+    function settleFull(uint256 tokenId) external returns (uint256);
 }
 
 /// @title VyraLocking
@@ -27,6 +28,8 @@ interface IRewardPool {
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
 ///      the fee difference plus a top-up, and the remaining days earn on the bigger amount.
 ///      Everything goes to the pool. Nothing is burned and this contract never keeps tokens.
+///      Emergency gate: the owner can hand any locked guardian back to its holder early, with the
+///      full period's reward paid out (see {emergencyReturn}).
 contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -63,6 +66,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     mapping(uint256 tokenId => Lock) internal _locks;
     mapping(address owner => EnumerableSet.UintSet) internal _lockedBy;
+    /// @dev Every locked token id, so the owner can find them all in an emergency.
+    EnumerableSet.UintSet internal _allLocked;
 
     uint64 public nextLockId = 1;
     uint256 public totalLocked;
@@ -92,6 +97,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         uint40 end
     );
     event Unlocked(address indexed owner, uint256 indexed tokenId);
+    event EmergencyReturned(address indexed owner, uint256 indexed tokenId, uint256 rewardPaid);
     event LeveledUp(
         address indexed owner, uint256 indexed tokenId, uint8 fromLevel, uint8 toLevel, uint256 newAmount, uint256 paid
     );
@@ -154,6 +160,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             if (_locks[id].owner != address(0)) revert AlreadyLocked(id);
             if (nft.ownerOf(id) != msg.sender) revert NotTokenOwner(id);
             _lockedBy[msg.sender].add(id);
+            _allLocked.add(id);
             _openLock(id, amounts[i], levels[i], false);
             nft.transferFrom(msg.sender, address(this), id);
         }
@@ -226,6 +233,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             IRewardPool(pool).settle(id);
             delete _locks[id];
             _lockedBy[msg.sender].remove(id);
+            _allLocked.remove(id);
             emit Unlocked(msg.sender, id);
             nft.transferFrom(address(this), msg.sender, id);
         }
@@ -254,6 +262,22 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     function lockedTokensOf(address owner) external view returns (uint256[] memory) {
         return _lockedBy[owner].values();
+    }
+
+    /// @notice Number of guardians currently held by the Keep.
+    function allLockedCount() external view returns (uint256) {
+        return _allLocked.length();
+    }
+
+    /// @notice Locked token ids `[start, start + count)` of the global set (clamped to its end).
+    function allLockedTokens(uint256 start, uint256 count) external view returns (uint256[] memory out) {
+        uint256 len = _allLocked.length();
+        uint256 end = start + count > len ? len : start + count;
+        if (start >= end) return out;
+        out = new uint256[](end - start);
+        for (uint256 i; i < out.length; ++i) {
+            out[i] = _allLocked.at(start + i);
+        }
     }
 
     function tierConfig(uint8 tier) external view returns (TierConfig memory) {
@@ -344,6 +368,28 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         _unpause();
     }
 
+    /// @notice Emergency gate: hand locked guardians back to their holders before their period ends.
+    ///         Each holder is paid the full period's reward (it was reserved when the lock opened)
+    ///         and gets the NFT back. Works while paused. Holders' own unlock/claim keep working too.
+    function emergencyReturn(uint256[] calldata tokenIds) external onlyOwner nonReentrant {
+        if (tokenIds.length == 0) revert EmptyInput();
+        for (uint256 i; i < tokenIds.length; ++i) {
+            _emergencyReturn(tokenIds[i]);
+        }
+        totalLocked -= tokenIds.length;
+    }
+
+    /// @notice Emergency gate for everything: returns up to `max` locked guardians (from the end of
+    ///         the global set, to stay inside the block gas limit). Call again until none are left.
+    function emergencyReturnAll(uint256 max) external onlyOwner nonReentrant returns (uint256 returned) {
+        uint256 len = _allLocked.length();
+        returned = max < len ? max : len;
+        for (uint256 i; i < returned; ++i) {
+            _emergencyReturn(_allLocked.at(len - 1 - i));
+        }
+        totalLocked -= returned;
+    }
+
     /// @notice Return an NFT sent here directly (not through lock()).
     function rescueERC721(uint256 tokenId, address to) external onlyOwner {
         if (_locks[tokenId].owner != address(0)) revert TokenIsLocked(tokenId);
@@ -383,6 +429,17 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             total += amounts[i];
             fees += price;
         }
+    }
+
+    function _emergencyReturn(uint256 id) internal {
+        address holder = _locks[id].owner;
+        if (holder == address(0)) revert NotLocked(id);
+        uint256 paid = IRewardPool(pool).settleFull(id);
+        delete _locks[id];
+        _lockedBy[holder].remove(id);
+        _allLocked.remove(id);
+        emit EmergencyReturned(holder, id, paid);
+        nft.transferFrom(address(this), holder, id);
     }
 
     function _requireEndedLockOf(uint256 id) internal view {

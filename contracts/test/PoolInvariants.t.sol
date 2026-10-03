@@ -24,6 +24,7 @@ contract Handler is Test {
     uint256 public claims;
     uint256 public paidLevels;
     uint256 public levelUps;
+    uint256 public emergencyReturns;
 
     constructor(VyraLocking l, VyraRewardPool p, MockVyraNFT n, MockToken t, address o, address alice) {
         (locking, pool, nft, token, owner) = (l, p, n, t, o);
@@ -135,6 +136,14 @@ contract Handler is Test {
         } catch {}
     }
 
+    function emergencyReturn(uint256 idSeed) external {
+        uint256 id = _id(idSeed);
+        if (_lockOwner(id) == address(0)) return;
+        vm.prank(owner);
+        locking.emergencyReturn(_one(id));
+        ++emergencyReturns;
+    }
+
     function ownerWithdraw(uint256 amount) external {
         uint256 free = pool.available();
         if (free == 0) return;
@@ -161,6 +170,7 @@ contract PoolInvariants is Base {
         assertGt(handler.locks(), 0);
         assertGt(handler.paidLevels(), 0);
         assertGt(handler.levelUps(), 0);
+        assertGt(handler.emergencyReturns(), 0);
 
     }
 
@@ -172,6 +182,17 @@ contract PoolInvariants is Base {
     /// The locking contract never keeps tokens.
     function invariant_lockingHoldsNoTokens() public view {
         assertEq(token.balanceOf(address(locking)), 0);
+    }
+
+    /// The global locked set matches the counter and every entry is a live lock held here.
+    function invariant_lockedSetMatches() public view {
+        uint256 n = locking.allLockedCount();
+        assertEq(n, locking.totalLocked());
+        uint256[] memory all = locking.allLockedTokens(0, n);
+        for (uint256 i; i < n; ++i) {
+            assertTrue(locking.lockOf(all[i]).owner != address(0));
+            assertEq(nft.ownerOf(all[i]), address(locking));
+        }
     }
 
     /// Money in = money out + money held.

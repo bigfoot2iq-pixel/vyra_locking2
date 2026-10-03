@@ -466,6 +466,104 @@ contract VyraLockingTest is Base {
         nft.safeTransferFrom(alice, address(locking), COMMON_ID);
     }
 
+    // ---------------------------------------------------------------- emergency gate
+
+    function test_emergencyReturn_paysFullPeriodAndReturnsNft() public {
+        lockAs(alice, COMMON_ID, 4e18); // 0.2/day for 7 days = 1.4
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(alice);
+        pool.claim(ids(COMMON_ID)); // 0.4
+
+        uint256 before = token.balanceOf(alice);
+        vm.expectEmit(address(locking));
+        emit VyraLocking.EmergencyReturned(alice, COMMON_ID, 1e18);
+        vm.prank(owner);
+        locking.emergencyReturn(ids(COMMON_ID));
+
+        assertEq(token.balanceOf(alice) - before, 1e18); // the 5 remaining days
+        assertEq(nft.ownerOf(COMMON_ID), alice);
+        assertEq(locking.lockOf(COMMON_ID).owner, address(0));
+        assertEq(locking.lockedTokensOf(alice).length, 0);
+        assertEq(locking.allLockedCount(), 0);
+        assertEq(locking.totalLocked(), 0);
+        assertEq(pool.totalReserved(), 0);
+    }
+
+    function test_emergencyReturn_worksWhilePausedAndAfterLevelUp() public {
+        lockAs(alice, COMMON_ID, 4e18);
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(alice);
+        locking.levelUp(COMMON_ID, 1, 12e18); // pays day 1 at 4, days 2-7 now earn 0.6/day
+        vm.prank(owner);
+        locking.pause();
+
+        uint256 before = token.balanceOf(alice);
+        vm.prank(owner);
+        locking.emergencyReturn(ids(COMMON_ID));
+        assertEq(token.balanceOf(alice) - before, 3.6e18);
+        assertEq(nft.ownerOf(COMMON_ID), alice);
+        assertEq(pool.totalReserved(), 0);
+    }
+
+    function test_emergencyReturn_afterPeriodEndPaysOnlyWhatIsLeft() public {
+        lockAs(alice, COMMON_ID, 4e18);
+        vm.warp(block.timestamp + 30 days);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(owner);
+        locking.emergencyReturn(ids(COMMON_ID));
+        assertEq(token.balanceOf(alice) - before, 1.4e18);
+    }
+
+    function test_emergencyReturn_ownerOnlyAndLockedOnly() public {
+        lockAs(alice, COMMON_ID, 4e18);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        locking.emergencyReturn(ids(COMMON_ID));
+
+        vm.startPrank(owner);
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.NotLocked.selector, COMMON_ID_2));
+        locking.emergencyReturn(ids(COMMON_ID_2));
+        vm.expectRevert(VyraLocking.EmptyInput.selector);
+        locking.emergencyReturn(new uint256[](0));
+        vm.stopPrank();
+    }
+
+    function test_emergencyReturnAll_inBatches() public {
+        nft.mint(bob, 2); // ids 11, 12 (Common)
+        token.faucet(bob, 100e18);
+        vm.startPrank(bob);
+        nft.setApprovalForAll(address(locking), true);
+        token.approve(address(locking), type(uint256).max);
+        vm.stopPrank();
+
+        lockAs(alice, COMMON_ID, 4e18);
+        lockAs(alice, LEGENDARY_ID, 50e18);
+        lockAs(bob, 11, 2e18);
+        lockAs(bob, 12, 2e18);
+        assertEq(locking.allLockedCount(), 4);
+        assertEq(locking.allLockedTokens(1, 10).length, 3);
+        assertEq(locking.allLockedTokens(9, 1).length, 0);
+
+        vm.startPrank(owner);
+        assertEq(locking.emergencyReturnAll(3), 3);
+        assertEq(locking.allLockedCount(), 1);
+        assertEq(locking.emergencyReturnAll(10), 1);
+        assertEq(locking.emergencyReturnAll(10), 0);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(COMMON_ID), alice);
+        assertEq(nft.ownerOf(LEGENDARY_ID), alice);
+        assertEq(nft.ownerOf(11), bob);
+        assertEq(nft.ownerOf(12), bob);
+        assertEq(locking.totalLocked(), 0);
+        assertEq(pool.totalReserved(), 0);
+    }
+
+    function test_pool_onlyLockingCanSettleFull() public {
+        vm.expectRevert(VyraRewardPool.NotLocking.selector);
+        pool.settleFull(COMMON_ID);
+    }
+
     // ---------------------------------------------------------------- fuzz
 
     /// Total paid out over a full period always equals the reserve, however claims are spaced.

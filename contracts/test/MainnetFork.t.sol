@@ -15,13 +15,13 @@ interface ITransferValidator {
 }
 
 /// @notice Runs against the live Ink deployment: real VYRA NFT (with OpenSea's transfer
-///         validator), the tVYRA test token, real holders. Skipped unless a fork RPC is given:
+///         validator), the TESTEORM test token, real holders. Skipped unless a fork RPC is given:
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
-    VyraLocking constant LOCKING = VyraLocking(0x98Fb92e8628954Ab89eE96D31BB80157aF3B0d6a);
-    VyraRewardPool constant POOL = VyraRewardPool(0xE43e9a93ace48bdc98d02f8eCFf83178703c43Be);
+    VyraLocking constant LOCKING = VyraLocking(0x3AA6DC19917744e83f5735E6414f671E243b8B01);
+    VyraRewardPool constant POOL = VyraRewardPool(0xDd4F315916FDfAc24143839cc3f1461E0a5313d6);
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);
-    IERC20 constant TOKEN = IERC20(0x7818F51b3126D513C9E400784b7451609F6Df544);
+    IERC20 constant TOKEN = IERC20(0x472B75e6E91700694d2F44d0824e725C35710f57);
     address constant OWNER = 0x16cCaC44ab58Da9Deca87424831B9929840c78b0;
     ITransferValidator constant VALIDATOR = ITransferValidator(0xA000027A9B2802E1ddf7000061001e5c005A0000);
     address constant COLLECTION_OWNER = 0xFFABc67Fe0737CD4fA32eA4Cac951eEedaFFc2cC;
@@ -217,6 +217,25 @@ contract MainnetForkTest is Test {
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "guardian back home");
         assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18, "all 7 days paid on unlock");
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 0);
+    }
+
+    function test_emergencyReturnSendsGuardiansHomeWithFullReward() public {
+        _lock(ALICE, UNCOMMON, 10e18, 0); // 6%/day
+        _lock(BOB, LEGEND, 50e18, 0); // 14%/day
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(OWNER);
+        LOCKING.pause();
+
+        uint256 aliceBefore = TOKEN.balanceOf(ALICE);
+        uint256 bobBefore = TOKEN.balanceOf(BOB);
+        vm.prank(OWNER);
+        LOCKING.emergencyReturnAll(10);
+        assertEq(NFT.ownerOf(UNCOMMON), ALICE, "alice's guardian back home");
+        assertEq(NFT.ownerOf(LEGEND), BOB, "bob's guardian back home");
+        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18, "full period paid");
+        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18, "full period paid");
+        assertEq(LOCKING.allLockedCount(), 0);
+        assertEq(POOL.totalReserved(), 0);
     }
 
     function test_renewAtHigherLevelKeepsNftInPlace() public {

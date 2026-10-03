@@ -29,6 +29,9 @@
 - **Period:** default 7 days. No early unlock. After the end, call `unlock` (pays out the remaining rewards) or `renew` (pays out, then a new payment starts a new period; the NFT never moves).
 - **Snapshots:** every config change applies to new locks only. Running locks keep their snapshot.
 - **Pause:** `pause()` blocks lock, renew and levelUp. **Claim and unlock always work.**
+- **Emergency gate:** the owner can send locked guardians home early with `emergencyReturn(ids)` or `emergencyReturnAll(max)` (batches from the global locked set; repeat until `allLockedCount()` is 0).
+  - Each holder is paid the **full period's** remaining reward (already reserved in the pool), then gets the NFT back.
+  - Works while paused. The owner can only send guardians to the holder who locked them, never elsewhere.
 
 ## Why the pool runs itself
 
@@ -38,16 +41,16 @@ Each lock pays into the pool *before* its rewards are reserved. When a tier's fu
 
 - Tokens leave the pool only three ways:
   1. claims, to the lock owner;
-  2. settlement on unlock/renew, to the lock owner;
+  2. settlement on unlock/renew/emergency return, to the lock owner;
   3. `withdrawSurplus`, by the owner.
 - Rewards are reserved when a lock opens. `withdrawSurplus` can never touch reserved tokens, so even a stolen owner key cannot take rewards already promised to holders.
 - The token is set once and the pool ↔ locking wiring is set once. The pool token can't be "rescued", and `renounceOwnership` is disabled.
 - Two-step ownership (`Ownable2Step`). The intended owner is a Safe multisig.
 - Reentrancy guards everywhere, and fee-on-transfer tokens are rejected.
 - Tests:
-  - `forge test` runs 54 unit/fuzz tests (including the real collection map) plus 3 stateful invariants.
-  - The invariants run 256k random locks and renewals at random levels, level-ups, unlocks, claims, owner withdrawals and time jumps, and every run must include real locks, paid levels and level-ups.
-  - They check that the pool always covers its reserves, that the locking contract never holds tokens, and that in = out + held.
+  - `forge test` runs 60 unit/fuzz tests (including the real collection map) plus 4 stateful invariants.
+  - The invariants run 256k random locks and renewals at random levels, level-ups, unlocks, claims, emergency returns, owner withdrawals and time jumps, and every run must include real locks, paid levels and level-ups.
+  - They check that the pool always covers its reserves, that the locking contract never holds tokens, that the global locked set matches the guardians held, and that in = out + held.
 
 ## Develop
 

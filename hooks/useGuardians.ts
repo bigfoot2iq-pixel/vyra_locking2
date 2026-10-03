@@ -51,8 +51,30 @@ async function fetchWalletIds(client: PublicClient, user: Address): Promise<bigi
     );
     return ids.sort((a, b) => (a < b ? -1 : 1));
   } catch {
-    return fetchIdsFromExplorer(user);
+    return ownedOnChain(client, user, [...(await fetchIdsFromExplorer(user)), ...recentlyReturned]);
   }
+}
+
+/**
+ * The explorer indexes a few blocks behind, so right after a lock it still lists the guardian and
+ * right after an unlock it doesn't list it yet. Guardians returned by an unlock this session are
+ * added back, and every id is confirmed with ownerOf so the wallet list always matches the chain.
+ */
+const recentlyReturned = new Set<bigint>();
+export function noteReturned(ids: readonly bigint[]) {
+  ids.forEach((id) => recentlyReturned.add(id));
+}
+
+async function ownedOnChain(client: PublicClient, user: Address, ids: bigint[]): Promise<bigint[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const owners = await client.multicall({
+    allowFailure: true,
+    contracts: unique.map((id) => ({ address: addresses.nft!, abi: erc721Abi, functionName: "ownerOf", args: [id] }) as const),
+  });
+  return unique
+    .filter((_, i) => owners[i].status === "success" && (owners[i].result as Address).toLowerCase() === user.toLowerCase())
+    .sort((a, b) => (a < b ? -1 : 1));
 }
 
 interface BlockscoutNftPage {
@@ -101,7 +123,9 @@ export function useGuardians() {
   });
 
   const lockedIds = [...(lockedQ.data ?? [])].sort((a, b) => (a < b ? -1 : 1));
-  const walletIds = wallet.data ?? [];
+  // Never show a guardian twice, even if a stale wallet read still lists one that is now locked.
+  const lockedSet = new Set(lockedIds);
+  const walletIds = (wallet.data ?? []).filter((id) => !lockedSet.has(id));
   const allIds = [...lockedIds, ...walletIds];
 
   const perToken = useReadContracts({

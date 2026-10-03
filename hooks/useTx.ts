@@ -79,7 +79,13 @@ export function useTx() {
       const receipt = await client!.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted.");
       push({ kind: "success", title: `${label} confirmed`, hash });
+      // Ink's RPC is load-balanced, so a read right after the receipt can land on a node that
+      // hasn't seen the block yet. Wait for it, refresh, then refresh again as a safety net.
+      for (let i = 0; i < 10 && (await client!.getBlockNumber({ cacheTime: 0 })) < receipt.blockNumber; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
       await qc.invalidateQueries();
+      for (const ms of [2_500, 7_000]) setTimeout(() => void qc.invalidateQueries(), ms);
       return true;
     } catch (e) {
       const message = errorMessage(e);

@@ -3,7 +3,7 @@
 import { useState, type CSSProperties, type PointerEvent } from "react";
 import { useAccount } from "wagmi";
 import { useChainNow } from "@/hooks/useChainNow";
-import { unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
+import { noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
 import { topLevel, useProtocol } from "@/hooks/useProtocol";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
@@ -47,8 +47,10 @@ export function Keep() {
     });
     if (ok) burstFrom(from ?? null);
   };
-  const unlock = (id: bigint) =>
-    send("Guardian unlocked", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
+  const unlock = async (id: bigint) => {
+    noteReturned([id]); // shown in the wallet list as soon as ownerOf confirms it, before the explorer catches up
+    await send("Guardian unlocked", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
+  };
 
   // Re-resolve the guardian on every render so dialogs see fresh level/allowance data after a tx.
   const modalGuardian = modal && gs.guardians.find((g) => g.id === modal.guardian.id);

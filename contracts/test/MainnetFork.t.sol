@@ -9,15 +9,23 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {VyraLocking} from "../src/VyraLocking.sol";
 import {VyraRewardPool} from "../src/VyraRewardPool.sol";
 
+interface ITransferValidator {
+    function isAccountWhitelistedByCollection(address collection, address account) external view returns (bool);
+    function addAccountToWhitelist(uint120 id, address account) external;
+}
+
 /// @notice Runs against the live Ink deployment: real VYRA NFT (with OpenSea's transfer
-///         validator), real VR token, real holders. Skipped unless a fork RPC is given:
+///         validator), the tVYRA test token, real holders. Skipped unless a fork RPC is given:
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
-    VyraLocking constant LOCKING = VyraLocking(0x1824e476FaD872D42746028B0c47A8166DA3a465);
-    VyraRewardPool constant POOL = VyraRewardPool(0x835bE882a79404ec0B1Ed7B2FC2464eE59e7bb65);
+    VyraLocking constant LOCKING = VyraLocking(0x98Fb92e8628954Ab89eE96D31BB80157aF3B0d6a);
+    VyraRewardPool constant POOL = VyraRewardPool(0xE43e9a93ace48bdc98d02f8eCFf83178703c43Be);
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);
-    IERC20 constant TOKEN = IERC20(0xCfb7bb117d03e932c2047373fBC0fD2aFF797805);
+    IERC20 constant TOKEN = IERC20(0x7818F51b3126D513C9E400784b7451609F6Df544);
     address constant OWNER = 0x16cCaC44ab58Da9Deca87424831B9929840c78b0;
+    ITransferValidator constant VALIDATOR = ITransferValidator(0xA000027A9B2802E1ddf7000061001e5c005A0000);
+    address constant COLLECTION_OWNER = 0xFFABc67Fe0737CD4fA32eA4Cac951eEedaFFc2cC;
+    uint120 constant COLLECTION_LIST = 97;
 
     // Real holders and guardians they hold on Ink (tiers from the frozen rarity map).
     address constant ALICE = 0xAa06Db40EE9FFA818eE3149CE7D07a89573289dE; // 1087 Common, 1081 Uncommon
@@ -31,6 +39,12 @@ contract MainnetForkTest is Test {
         string memory url = vm.envOr("FORK_URL", string(""));
         if (bytes(url).length == 0) vm.skip(true);
         vm.createSelectFork(url);
+        // Until the collection owner allow-lists this locking contract on OpenSea's validator,
+        // simulate that one transaction so the rest of the suite can run.
+        if (!VALIDATOR.isAccountWhitelistedByCollection(address(NFT), address(LOCKING))) {
+            vm.prank(COLLECTION_OWNER);
+            VALIDATOR.addAccountToWhitelist(COLLECTION_LIST, address(LOCKING));
+        }
         _fund(ALICE);
         _fund(BOB);
     }

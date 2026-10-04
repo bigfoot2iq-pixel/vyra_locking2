@@ -262,7 +262,7 @@ export function LockAllDialog({
       )}
 
       <button
-        className="gbtn gbtn-treasure gbtn-block gbtn-lg"
+        className="gbtn gbtn-jade gbtn-block gbtn-lg"
         disabled={!!busy || checking || blocked || chosen.length === 0 || short || poolShort || p.paused}
         onClick={act}
       >

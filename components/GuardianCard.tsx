@@ -40,6 +40,12 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   // Can't cover even a level 1 lock (which has no fee): point straight at where to buy.
   const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < first.minAmount ? buyUrlFor(p.token) : undefined;
   const owedDays = unclaimedDays(g, now);
+  // Running-lock facts: today's day number, and tribute earned so far against the whole lock's total.
+  const daily = l ? (l.amount * BigInt(l.rateBps)) / 10_000n : 0n;
+  const daysDone = l ? Math.min(Math.max(0, Math.floor((now - l.start) / DAY)), l.durationDays) : 0;
+  const dayNow = l ? Math.min(daysDone + 1, l.durationDays) : 0;
+  const earned = daily * BigInt(daysDone);
+  const lockTotal = l ? daily * BigInt(l.durationDays) : 0n;
   const canLevelUp = !!l && !ended && !p.paused && l.level < topLevel(p.tiers?.[l.tier]);
 
   return (
@@ -74,11 +80,45 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 <span className="num" title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day`}>
                   {ended
                     ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
-                    : `+${fmtToken((l.amount * BigInt(l.rateBps)) / 10_000n, p.decimals)} ${p.symbol}/day`}
+                    : `+${fmtToken(daily, p.decimals)} ${p.symbol}/day`}
                 </span>
                 <LevelPip level={l.level} label={false} />
               </span>
             </div>
+            {!ended && (
+              <dl className="card-facts num">
+                <div>
+                  <dt>Locked</dt>
+                  <dd>
+                    {fmtToken(l.amount, p.decimals)}
+                    <small>{p.symbol}</small>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Day</dt>
+                  <dd>
+                    {dayNow}
+                    <small>/ {l.durationDays}</small>
+                  </dd>
+                </div>
+                <div className="is-gold">
+                  <dt>Earned</dt>
+                  <dd title={`${fmtToken(earned, p.decimals)} of ${fmtToken(lockTotal, p.decimals)} ${p.symbol} this lock`}>
+                    {fmtToken(earned, p.decimals, 2)}
+                    <small>/ {fmtToken(lockTotal, p.decimals, 0)}</small>
+                  </dd>
+                  <dd className="card-facts-meter" aria-hidden>
+                    <span style={{ width: `${lockTotal > 0n ? Number((earned * 1000n) / lockTotal) / 10 : 0}%` }} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Unlocks</dt>
+                  <dd title={new Date(l.end * 1000).toLocaleString()}>
+                    {new Date(l.end * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </dd>
+                </div>
+              </dl>
+            )}
             {ended && (
               <div className="card-row">
                 <span className="dim">Tribute due</span>
@@ -162,7 +202,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
               </span>
             </div>
             <div className={`card-actions${buyUrl ? " card-actions-row" : ""}`}>
-              <button className="gbtn gbtn-treasure" disabled={busy || p.paused || tierClosed} onClick={onLock}>
+              <button className="gbtn gbtn-jade" disabled={busy || p.paused || tierClosed} onClick={onLock}>
                 <LockIcon /> Lock &amp; earn
               </button>
               {buyUrl && (

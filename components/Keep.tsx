@@ -123,7 +123,7 @@ export function Keep() {
             ) : (
               <>
                 {lockable.length > 0 && (
-                  <button className="gbtn gbtn-treasure gbtn-lg" disabled={!!busy || !canLock} onClick={openLockAll}>
+                  <button className="gbtn gbtn-jade gbtn-lg" disabled={!!busy || !canLock} onClick={openLockAll}>
                     <LockIcon /> Lock {lockable.length === 1 ? "your guardian" : `all ${lockable.length}`}
                   </button>
                 )}
@@ -334,7 +334,7 @@ export function Keep() {
       {isConnected && !modal && (lockable.length > 0 || claimable.length > 0) && (
         <div className="action-dock" role="region" aria-label="Quick actions">
           {lockable.length > 0 && (
-            <button className="gbtn gbtn-treasure" disabled={!!busy || !canLock} onClick={openLockAll}>
+            <button className="gbtn gbtn-jade" disabled={!!busy || !canLock} onClick={openLockAll}>
               <LockIcon /> Lock {lockable.length === 1 ? "1" : `all ${lockable.length}`}
             </button>
           )}

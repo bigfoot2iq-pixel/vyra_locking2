@@ -565,64 +565,33 @@ a {
   filter: none;
 }
 
-/* treasure: the primary "lock & earn" call. Polished gold, a glossy top, and a glint that sweeps across. */
-.gbtn-treasure {
-  --face-hi: #fff0b0;
-  --face-lo: #e0a133;
-  --base: #6b400a;
-  --ink-on: #3a2204;
+/* jade: every "lock" call. Polished emerald to match the open-lock coin, with a glossy top. It stays still:
+   the only moving shine belongs to locked cards' claim bars.
+   Colour language: emerald = available to lock, gold = locked and earning. */
+.gbtn-jade {
+  --face-hi: #b9fad6;
+  --face-mid: #4fd893;
+  --face-lo: #179d5e;
+  --base: #064227;
+  --ink-on: #03301a;
   --rim: rgba(255, 255, 255, 0.9);
-  overflow: hidden;
-  text-shadow: 0 1px 0 rgba(255, 248, 215, 0.7);
+  text-shadow: 0 1px 0 rgba(225, 255, 238, 0.65);
   background:
     linear-gradient(180deg, var(--rim) 0, var(--rim) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08) 46%, transparent 47%),
-    linear-gradient(180deg, var(--face-hi), #f4c95a 40%, var(--face-lo) calc(100% - 4px), var(--base) calc(100% - 4px));
-  box-shadow: 0 0 22px rgba(242, 194, 91, 0.28);
+    linear-gradient(180deg, var(--face-hi), var(--face-mid) 40%, var(--face-lo) calc(100% - 4px), var(--base) calc(100% - 4px));
+  box-shadow: 0 0 22px rgba(111, 242, 176, 0.28);
 }
 
-.gbtn-treasure:active:not(:disabled) {
+.gbtn-jade:active:not(:disabled) {
   background:
     linear-gradient(180deg, var(--rim) 0, var(--rim) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08) 46%, transparent 47%),
-    linear-gradient(180deg, var(--face-hi), #f4c95a 40%, var(--face-lo) calc(100% - 1px), var(--base) calc(100% - 1px));
+    linear-gradient(180deg, var(--face-hi), var(--face-mid) 40%, var(--face-lo) calc(100% - 1px), var(--base) calc(100% - 1px));
 }
 
-.gbtn-treasure svg {
-  filter: drop-shadow(0 1px 0 rgba(255, 248, 215, 0.6));
-}
-
-.gbtn-treasure::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 4px -60%;
-  width: 45%;
-  pointer-events: none;
-  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.75) 50%, transparent);
-  transform: skewX(-20deg);
-  animation: glint 3.6s var(--ease) infinite;
-}
-
-.gbtn-treasure:disabled::after {
-  animation: none;
-  opacity: 0;
-}
-
-@keyframes glint {
-  0%,
-  55% {
-    left: -60%;
-  }
-  100% {
-    left: 130%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .gbtn-treasure::after {
-    animation: none;
-    opacity: 0;
-  }
+.gbtn-jade svg {
+  filter: drop-shadow(0 1px 0 rgba(225, 255, 238, 0.6));
 }
 
 /* stone: secondary (unlock) */
@@ -2520,7 +2489,7 @@ select.input {
 
 /* idle: the call to action. Full colour, a breathing edge, and what the guardian could earn. */
 .card-idle:not(.tier-3):not(.tier-4)::before {
-  background: linear-gradient(160deg, var(--violet-2), rgba(242, 194, 91, 0.55) 45%, rgba(139, 92, 246, 0.7));
+  background: linear-gradient(160deg, #6ff2b0, rgba(31, 165, 101, 0.5) 45%, rgba(168, 247, 205, 0.75));
   padding: 1.5px;
 }
 
@@ -2545,8 +2514,8 @@ select.input {
   display: grid;
   gap: 2px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(242, 194, 91, 0.14), rgba(242, 194, 91, 0.03) 70%);
-  border: 1px solid rgba(242, 194, 91, 0.32);
+  background: linear-gradient(135deg, rgba(111, 242, 176, 0.14), rgba(111, 242, 176, 0.03) 70%);
+  border: 1px solid rgba(111, 242, 176, 0.32);
 }
 
 .card-pitch-kicker {
@@ -2555,20 +2524,20 @@ select.input {
   font-weight: 700;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--aurum-2);
+  color: #a8f7cd;
   opacity: 0.85;
 }
 
 .card-pitch-value {
   font-size: 1.55rem;
   line-height: 1.15;
-  color: var(--aurum);
-  text-shadow: 0 0 20px rgba(242, 194, 91, 0.35);
+  color: #6ff2b0;
+  text-shadow: 0 0 20px rgba(111, 242, 176, 0.35);
 }
 
 .card-pitch-value small {
   font-size: 0.78rem;
-  color: var(--aurum-2);
+  color: #a8f7cd;
   text-shadow: none;
 }
 
@@ -2693,7 +2662,7 @@ select.input {
 /* ---------- conversion helpers: dollar values, presets, wallet guidance ---------- */
 
 .card-pitch-usd {
-  color: var(--aurum-2);
+  color: #a8f7cd;
   font-weight: 600;
 }
 
@@ -3116,9 +3085,9 @@ a.gbtn {
 
 .claimbar {
   --p: 0%;
-  --fill-hi: #8e66f0;
-  --fill-lo: #4f24a8;
-  --fill-ink: #fff;
+  --fill-hi: #e9b856;
+  --fill-lo: #8c5a12;
+  --fill-ink: #2a1803;
   position: relative;
   flex: 1;
   min-width: 0;
@@ -3136,10 +3105,16 @@ a.gbtn {
 }
 
 .claimbar.is-ready {
-  --fill-hi: #ffe08a;
-  --fill-lo: #d99a2b;
-  --fill-ink: #2a1803;
+  --fill-hi: #fff0b0;
+  --fill-lo: #e0a133;
   cursor: pointer;
+  animation: readyPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes readyPulse {
+  50% {
+    filter: drop-shadow(0 0 14px rgba(242, 194, 91, 0.55)) brightness(1.06);
+  }
 }
 
 .claimbar-track,
@@ -3156,7 +3131,7 @@ a.gbtn {
 
 /* time left: a recessed dark groove */
 .claimbar-track {
-  color: var(--ink-dim);
+  color: color-mix(in srgb, var(--aurum) 55%, var(--ink-dim));
   background:
     repeating-linear-gradient(90deg, transparent 0 11px, rgba(255, 255, 255, 0.025) 11px 12px),
     linear-gradient(180deg, #0b0716, #160e29);
@@ -3240,7 +3215,66 @@ a.gbtn {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .claimbar-fill::after {
+  .claimbar-fill::after,
+  .claimbar.is-ready {
     animation: none;
   }
+}
+
+/* locked card facts: fills the body with what a holder actually checks */
+.card-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  background: var(--edge-soft);
+  border: 1px solid var(--edge-soft);
+}
+
+.card-facts > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  background: rgba(10, 7, 20, 0.6);
+}
+
+.card-facts dt {
+  font-family: var(--font-display), serif;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.card-facts dd {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-facts dd small {
+  margin-left: 3px;
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+}
+
+.card-facts .is-gold dd {
+  color: var(--aurum);
+}
+
+.card-facts-meter {
+  height: 3px;
+  margin-top: 4px;
+  background: var(--edge);
+  overflow: hidden;
+}
+
+.card-facts-meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--aurum-deep), var(--aurum));
 }

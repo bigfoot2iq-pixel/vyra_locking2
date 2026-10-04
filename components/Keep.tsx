@@ -167,6 +167,7 @@ export function Keep() {
           idle={gs.idle}
           totalPending={gs.totalPending}
           owedDays={owedDays}
+          now={now}
           isLoading={gs.isLoading}
           protocol={p}
           busy={!!busy}

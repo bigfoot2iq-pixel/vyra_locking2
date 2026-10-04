@@ -2,11 +2,11 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import type { Guardian } from "@/hooks/useGuardians";
-import type { Protocol } from "@/hooks/useProtocol";
+import { maxTribute, type Protocol } from "@/hooks/useProtocol";
 import { fmtToken, plural } from "@/lib/format";
 import { ClaimIcon } from "./icons";
 
-type Filter = "all" | "vigil" | "ready" | "due";
+type Filter = "all" | "idle" | "locked" | "due";
 
 interface Props {
   locked: Guardian[];
@@ -14,6 +14,7 @@ interface Props {
   totalPending: bigint;
   /** Unclaimed days summed across all locked guardians. */
   owedDays: number;
+  now: number;
   isLoading: boolean;
   protocol: Protocol;
   busy: boolean;
@@ -22,24 +23,37 @@ interface Props {
   renderCard: (g: Guardian, index: number) => ReactNode;
 }
 
-/** Every guardian the wallet holds in one grid: those on vigil first, then the ones ready to lock. */
-export function Roster({ locked, idle, totalPending, owedDays, isLoading, protocol: p, busy, claiming, onClaimAll, renderCard }: Props) {
+/**
+ * Every guardian the wallet holds in one grid. Cards that want a decision lead (finished locks to renew,
+ * then idle guardians to lock); running locks settle at the end, where they can be left alone.
+ */
+export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, protocol: p, busy, claiming, onClaimAll, renderCard }: Props) {
   const [picked, setPicked] = useState<Filter>("all");
   const due = locked.filter((g) => (g.pending ?? 0n) > 0n);
   // A filter that emptied out (e.g. after claiming everything) falls back to the full roster.
-  const filter: Filter = picked === "due" && due.length === 0 ? "all" : picked;
+  const filter: Filter = (picked === "due" && due.length === 0) || (picked === "idle" && idle.length === 0) ? "all" : picked;
 
   const total = locked.length + idle.length;
+  const done = locked.filter((g) => g.lock && now >= g.lock.end);
+  const running = locked.filter((g) => !done.includes(g));
+  // What the idle guardians could earn if every one were locked at its tier's top level.
+  const idleUpside = idle.reduce((sum, g) => sum + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
+
   const tabs: { id: Filter; label: string; count: number; hidden?: boolean }[] = [
     { id: "all", label: "All", count: total },
-    { id: "vigil", label: "On vigil", count: locked.length },
-    { id: "ready", label: "Ready to lock", count: idle.length },
+    { id: "idle", label: "Idle", count: idle.length, hidden: idle.length === 0 },
+    { id: "locked", label: "Locked", count: locked.length },
     { id: "due", label: "Tribute due", count: due.length, hidden: due.length === 0 },
   ];
 
-  const top = filter === "ready" ? [] : filter === "due" ? due : locked;
-  const bottom = filter === "all" || filter === "ready" ? idle : [];
-  const showDivider = filter === "all" && top.length > 0 && bottom.length > 0;
+  const shown =
+    filter === "idle"
+      ? idle
+      : filter === "locked"
+        ? [...done, ...running]
+        : filter === "due"
+          ? due
+          : [...done, ...idle, ...running];
 
   return (
     <section className="section roster">
@@ -49,20 +63,36 @@ export function Roster({ locked, idle, totalPending, owedDays, isLoading, protoc
           <h2>
             The Roster <span className="count">{isLoading ? "…" : total}</span>
           </h2>
-          <p className="lore">Guardians on vigil earn tribute each day. The rest wait in your wallet, ready to lock.</p>
+          <p className="lore">
+            {isLoading || total === 0 ? (
+              "Locked guardians earn tribute every day, on their own."
+            ) : idle.length > 0 ? (
+              <>
+                {plural(idle.length, "guardian")} {idle.length === 1 ? "is" : "are"} idle.{" "}
+                {idleUpside > 0n && (
+                  <b className="roster-upside">
+                    Lock {idle.length === 1 ? "it" : "them"} to earn up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}.
+                  </b>
+                )}
+              </>
+            ) : (
+              "Every guardian is locked and earning. Nothing to do but claim."
+            )}
+          </p>
         </div>
         {!isLoading && total > 0 && (
           <dl className="roster-tally">
-            <div>
-              <dt>On vigil</dt>
+            <div className="roster-tally-locked">
+              <dt>Locked</dt>
               <dd className="num">
                 {locked.length}
                 <small>/ {total}</small>
               </dd>
-            </div>
-            <div>
-              <dt>Ready</dt>
-              <dd className="num">{idle.length}</dd>
+              <dd className="roster-meter" aria-hidden>
+                {Array.from({ length: Math.min(total, 12) }, (_, i) => (
+                  <i key={i} className={i < Math.round((locked.length / total) * Math.min(total, 12)) ? "on" : ""} />
+                ))}
+              </dd>
             </div>
             <div className="roster-tally-gold">
               <dt>Tribute due</dt>
@@ -113,10 +143,10 @@ export function Roster({ locked, idle, totalPending, owedDays, isLoading, protoc
             Find a guardian ↗
           </a>
         </div>
-      ) : top.length + bottom.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="empty plate">
           <p className="lore">
-            {filter === "vigil" ? "No guardian stands vigil yet. Lock one to start earning." : "Every guardian is already on vigil."}
+            {filter === "locked" ? "No guardian is locked yet. Lock one to start earning." : "Every guardian is already locked."}
           </p>
           <button className="btn btn-ghost" onClick={() => setPicked("all")}>
             Show all guardians
@@ -124,20 +154,8 @@ export function Roster({ locked, idle, totalPending, owedDays, isLoading, protoc
         </div>
       ) : (
         <div className="grid" key={filter}>
-          {top.map((g, i) => (
+          {shown.map((g, i) => (
             <Fragment key={g.id.toString()}>{renderCard(g, i)}</Fragment>
-          ))}
-          {showDivider && (
-            <div className="roster-divider" style={{ ["--i" as string]: top.length }}>
-              <span className="gem-sm" />
-              <span className="roster-divider-label">Ready to lock</span>
-              <span className="num faint">{bottom.length}</span>
-              <span className="roster-divider-rule" />
-              <span className="lore">Tribute starts the day after you lock.</span>
-            </div>
-          )}
-          {bottom.map((g, i) => (
-            <Fragment key={g.id.toString()}>{renderCard(g, top.length + i)}</Fragment>
           ))}
         </div>
       )}

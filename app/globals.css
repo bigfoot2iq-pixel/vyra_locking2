@@ -927,35 +927,6 @@ a {
   color: var(--aurum);
 }
 
-.roster-divider {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 18px 0 -2px;
-  animation: rise 0.7s var(--ease) backwards;
-  animation-delay: calc(var(--i, 0) * 70ms);
-}
-
-.roster-divider-label {
-  font-family: var(--font-display), serif;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.roster-divider-rule {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--edge), transparent);
-}
-
-.roster-divider .lore {
-  font-size: 0.98rem;
-}
-
 @media (max-width: 720px) {
   .roster-tally {
     width: 100%;
@@ -966,9 +937,6 @@ a {
   }
   .roster-bar > .gbtn {
     width: 100%;
-  }
-  .roster-divider .lore {
-    display: none;
   }
 }
 
@@ -1000,27 +968,6 @@ a {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   backdrop-filter: blur(6px);
-}
-
-.card-status-vigil {
-  border-color: rgba(185, 161, 255, 0.55);
-  color: var(--violet-2);
-}
-
-.card-status-done {
-  border-color: rgba(242, 194, 91, 0.6);
-  color: var(--aurum-2);
-  box-shadow: 0 0 14px rgba(242, 194, 91, 0.25);
-}
-
-/* guardians still in the wallet sit a little dimmer until hovered */
-.card-idle .card-art img {
-  filter: saturate(0.6) brightness(0.82);
-  transition: filter 0.45s var(--ease);
-}
-
-.card-idle:hover .card-art img {
-  filter: none;
 }
 
 /* ---------- guardian grid & card ---------- */
@@ -2503,4 +2450,192 @@ select.input {
 .step-check {
   margin-left: auto;
   color: var(--ok);
+}
+
+/* ---------- roster card states: idle invites, locked rests ---------- */
+
+.card-status svg {
+  width: 11px;
+  height: 11px;
+}
+
+.card-status-idle {
+  border-color: rgba(242, 194, 91, 0.45);
+  color: var(--aurum-2);
+}
+
+.card-status-locked {
+  border-color: rgba(185, 161, 255, 0.4);
+  color: var(--violet-2);
+}
+
+.card-status-done {
+  border-color: rgba(242, 194, 91, 0.6);
+  color: var(--aurum-2);
+  box-shadow: 0 0 14px rgba(242, 194, 91, 0.25);
+}
+
+/* idle: the call to action. Full colour, a breathing edge, and what the guardian could earn. */
+.card-idle:not(.tier-3):not(.tier-4)::before {
+  background: linear-gradient(160deg, var(--violet-2), rgba(242, 194, 91, 0.55) 45%, rgba(139, 92, 246, 0.7));
+  padding: 1.5px;
+}
+
+.card-idle::before {
+  animation: idleBreath 3.2s ease-in-out infinite;
+}
+
+.card-idle.tier-3::before,
+.card-idle.tier-4::before {
+  animation:
+    edgeSpin 6s linear infinite,
+    idleBreath 3.2s ease-in-out infinite;
+}
+
+@keyframes idleBreath {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.card-pitch {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(242, 194, 91, 0.14), rgba(242, 194, 91, 0.03) 70%);
+  border: 1px solid rgba(242, 194, 91, 0.32);
+}
+
+.card-pitch-kicker {
+  font-family: var(--font-display), serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--aurum-2);
+  opacity: 0.85;
+}
+
+.card-pitch-value {
+  font-size: 1.55rem;
+  line-height: 1.15;
+  color: var(--aurum);
+  text-shadow: 0 0 20px rgba(242, 194, 91, 0.35);
+}
+
+.card-pitch-value small {
+  font-size: 0.78rem;
+  color: var(--aurum-2);
+  text-shadow: none;
+}
+
+.card-pitch-sub {
+  font-size: 0.76rem;
+  color: var(--ink-dim);
+}
+
+.card-pitch-closed {
+  margin: 0;
+  background: none;
+  border-color: var(--edge-soft);
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+}
+
+/* locked: sealed and settled. Muted, still, and out of the way; the seal says it is safe in the Keep. */
+.card.card-locked::before {
+  animation-play-state: paused;
+  opacity: 0.6;
+}
+
+.card-locked:not(.tier-3):not(.tier-4)::before {
+  background: linear-gradient(160deg, rgba(185, 161, 255, 0.4), rgba(55, 42, 82, 0.5) 50%, rgba(55, 42, 82, 0.3));
+}
+
+.card-locked .card-art img {
+  filter: saturate(0.55) brightness(0.72) hue-rotate(-8deg);
+}
+
+.card-locked:hover .card-art img {
+  filter: saturate(0.85) brightness(0.9);
+}
+
+/* ward lines over the art: the guardian is behind the Keep's seal */
+.card-locked .card-art::after {
+  background:
+    repeating-linear-gradient(135deg, rgba(185, 161, 255, 0.07) 0 1px, transparent 1px 9px),
+    linear-gradient(180deg, rgba(91, 47, 176, 0.18), transparent 45%),
+    linear-gradient(180deg, transparent 55%, rgba(18, 11, 32, 0.95));
+}
+
+.card-locked .card-body {
+  background: rgba(10, 7, 20, 0.35);
+}
+
+.card-locked .card-id {
+  color: var(--ink-dim);
+}
+
+.card-seal {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #efe6ff;
+  background: radial-gradient(circle at 35% 30%, #a27cf5, #5b2fb0 55%, #2f1466);
+  box-shadow:
+    inset 0 0 0 2px rgba(10, 7, 20, 0.35),
+    inset 0 0 0 4px rgba(185, 161, 255, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.card-seal svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* finished lock: wants a decision, so it glows gold */
+.card-done::before {
+  animation: idleBreath 2.6s ease-in-out infinite;
+}
+
+.card-done:not(.tier-3):not(.tier-4)::before {
+  background: linear-gradient(160deg, var(--aurum), rgba(155, 109, 34, 0.6) 50%, var(--aurum-2));
+  padding: 1.5px;
+}
+
+.roster-upside {
+  color: var(--aurum);
+  font-weight: 600;
+}
+
+.roster-meter {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px !important;
+}
+
+.roster-meter i {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  border: 1px solid var(--edge);
+}
+
+.roster-meter i.on {
+  border-color: var(--violet-2);
+  background: var(--violet);
+  box-shadow: 0 0 6px rgba(139, 92, 246, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-idle::before,
+  .card-done::before {
+    animation: none;
+  }
 }

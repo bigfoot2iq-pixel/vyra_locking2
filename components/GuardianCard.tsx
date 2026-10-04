@@ -2,8 +2,8 @@
 
 import type { CSSProperties, PointerEvent } from "react";
 import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
-import { topLevel, type Protocol } from "@/hooks/useProtocol";
-import { bpsToPct, DAY, fmtClock, fmtDuration, fmtToken, plural } from "@/lib/format";
+import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { bpsToPct, DAY, fmtDuration, fmtToken, plural } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
 import { GuardianArt } from "./GuardianArt";
 import { ClaimIcon, LevelUpIcon, LockIcon, RenewIcon, UnlockIcon } from "./icons";
@@ -31,32 +31,37 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
   const first = cfg?.levels[0];
   const last = top >= 0 ? cfg?.levels[top] : undefined;
   const ended = !!l && now >= l.end;
-  const nextTribute = l && !ended ? l.start + (Math.floor((now - l.start) / DAY) + 1) * DAY : undefined;
   const tierClosed = !first || first.maxAmount === 0n;
+  const earnUpTo = maxTribute(cfg, p.durationDays);
   const owedDays = unclaimedDays(g, now);
   const canLevelUp = !!l && !ended && !p.paused && l.level < topLevel(p.tiers?.[l.tier]);
 
   return (
     <article
-      className={`card plate tier-${g.tier}${l ? " card-locked" : " card-idle"}`}
+      className={`card plate tier-${g.tier} ${!l ? "card-idle" : ended ? "card-done" : "card-locked"}`}
       style={{ ...tierStyle(g.tier), "--plate-edge": tierOf(g.tier).color, "--i": index } as CSSProperties}
       onPointerMove={sheen}
     >
       <div className="card-art">
         <GuardianArt tokenId={g.id} />
         <TierBadge tier={g.tier} />
-        <span className={`card-status card-status-${!l ? "idle" : ended ? "done" : "vigil"}`}>
+        <span className={`card-status card-status-${!l ? "idle" : ended ? "done" : "locked"}`}>
           {!l ? (
-            "In wallet"
+            "Idle"
           ) : ended ? (
-            "Vigil complete"
+            "Lock complete"
           ) : (
             <>
-              <span className="gem-sm gem-pulse" /> On vigil
+              <LockIcon /> Locked
             </>
           )}
         </span>
         <span className="card-id">#{g.id.toString().padStart(4, "0")}</span>
+        {l && !ended && (
+          <span className="card-seal" aria-hidden>
+            <LockIcon />
+          </span>
+        )}
       </div>
 
       <div className="card-body">
@@ -72,18 +77,12 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
               </span>
               <span className="num faint">{ended ? "—" : `ends in ${fmtDuration(l.end - now)}`}</span>
             </div>
-            {nextTribute !== undefined && (
-              <div className="card-row">
-                <span className="dim">Next tribute</span>
-                <span className="num next-tribute">
-                  <span className="gem-sm gem-pulse" /> {fmtClock(nextTribute - now)}
-                </span>
-              </div>
-            )}
             <div className="card-row">
-              <span className="dim">Locked</span>
-              <span className="num">
-                {fmtToken(l.amount, p.decimals)} {p.symbol} · {bpsToPct(l.rateBps)}/day
+              <span className="dim">{ended ? "Locked" : "Earning"}</span>
+              <span className="num" title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day`}>
+                {ended
+                  ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
+                  : `+${fmtToken((l.amount * BigInt(l.rateBps)) / 10_000n, p.decimals)} ${p.symbol}/day`}
               </span>
             </div>
             <div className="card-row">
@@ -132,27 +131,28 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
           </>
         ) : (
           <>
+            {tierClosed || earnUpTo === undefined ? (
+              <p className="card-pitch card-pitch-closed lore">Locking is closed for this tier for now.</p>
+            ) : (
+              <div className="card-pitch">
+                <span className="card-pitch-kicker">Earn up to</span>
+                <span className="card-pitch-value num">
+                  {fmtToken(earnUpTo, p.decimals, 0)} <small>{p.symbol}</small>
+                </span>
+                <span className="card-pitch-sub">
+                  {bpsToPct(cfg!.dailyRateBps)} a day for {p.durationDays} days
+                </span>
+              </div>
+            )}
             <div className="card-row">
-              <span className="dim">Levels</span>
-              <LevelPip level={top} label={false} />
-            </div>
-            <div className="card-row">
-              <span className="dim">Lock</span>
+              <span className="dim">Lock range</span>
               <span className="num">
-                {tierClosed || !last
-                  ? "closed"
-                  : `${fmtToken(first.minAmount, p.decimals)}–${fmtToken(last.maxAmount, p.decimals)} ${p.symbol}`}
-              </span>
-            </div>
-            <div className="card-row">
-              <span className="dim">Daily tribute</span>
-              <span className="num">
-                {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} · {p.durationDays ?? "—"} days
+                {tierClosed || !last ? "—" : `${fmtToken(first.minAmount, p.decimals)}–${fmtToken(last.maxAmount, p.decimals)} ${p.symbol}`}
               </span>
             </div>
             <div className="card-actions">
               <button className="gbtn gbtn-lock" disabled={busy || p.paused || tierClosed} onClick={onLock}>
-                <LockIcon /> Lock guardian
+                <LockIcon /> Lock &amp; earn
               </button>
             </div>
           </>

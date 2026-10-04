@@ -145,3 +145,10 @@ export function topLevel(cfg: TierConfig | undefined): number {
   });
   return top;
 }
+
+/** Most tribute one new lock in this tier can earn: the top level's max amount held for the full duration. */
+export function maxTribute(cfg: TierConfig | undefined, durationDays: number | bigint | undefined): bigint | undefined {
+  const top = topLevel(cfg);
+  if (!cfg || top < 0 || durationDays === undefined) return undefined;
+  return ((cfg.levels[top].maxAmount * BigInt(cfg.dailyRateBps)) / 10_000n) * BigInt(durationDays);
+}

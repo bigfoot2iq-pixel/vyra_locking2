@@ -58,7 +58,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
         <GuardianArt tokenId={g.id} />
         <TierBadge tier={g.tier} />
         {!l ? (
-          <span className="card-seal card-seal-open" role="img" aria-label="Available to lock" title="Available to lock">
+          <span className="card-seal" role="img" aria-label="Available to lock" title="Available to lock">
             <UnlockIcon />
           </span>
         ) : ended ? (
@@ -101,7 +101,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                     <small>/ {l.durationDays}</small>
                   </dd>
                 </div>
-                <div className="is-gold">
+                <div className="is-tier">
                   <dt>Earned</dt>
                   <dd title={`${fmtToken(earned, p.decimals)} of ${fmtToken(lockTotal, p.decimals)} ${p.symbol} this lock`}>
                     {fmtToken(earned, p.decimals, 2)}
@@ -135,11 +135,11 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             {ended ? (
               <div className="card-actions">
                 {!!g.pending && g.pending > 0n && (
-                  <button className="gbtn gbtn-gold gbtn-sm" disabled={busy} onClick={(e) => onClaim(e.currentTarget)}>
+                  <button className="gbtn gbtn-gloss gbtn-tier gbtn-sm" disabled={busy} onClick={(e) => onClaim(e.currentTarget)}>
                     <ClaimIcon /> Claim
                   </button>
                 )}
-                <button className="gbtn gbtn-lock gbtn-sm" disabled={busy || p.paused} onClick={onRenew}>
+                <button className="gbtn gbtn-gloss gbtn-tier gbtn-sm" disabled={busy || p.paused} onClick={onRenew}>
                   <RenewIcon /> Renew
                 </button>
                 <button className="gbtn gbtn-stone gbtn-sm" disabled={busy} onClick={onUnlock}>
@@ -167,7 +167,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 />
                 {canLevelUp && (
                   <button
-                    className="gbtn gbtn-up gbtn-sm card-levelup"
+                    className="gbtn gbtn-gloss gbtn-tier gbtn-sm card-levelup"
                     disabled={busy}
                     onClick={onLevelUp}
                     title="Level up: lock more, earn more"
@@ -202,7 +202,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
               </span>
             </div>
             <div className={`card-actions${buyUrl ? " card-actions-row" : ""}`}>
-              <button className="gbtn gbtn-jade" disabled={busy || p.paused || tierClosed} onClick={onLock}>
+              <button className="gbtn gbtn-gloss gbtn-tier" disabled={busy || p.paused || tierClosed} onClick={onLock}>
                 <LockIcon /> Lock &amp; earn
               </button>
               {buyUrl && (

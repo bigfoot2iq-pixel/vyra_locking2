@@ -178,7 +178,7 @@ export function Roster({
           </div>
           <div className="roster-actions">
             {idleUpside > 0n && (
-              <button className="gbtn gbtn-jade gbtn-sm" disabled={busy || !canLock} onClick={onLockAll}>
+              <button className="gbtn gbtn-gloss gbtn-sm" disabled={busy || !canLock} onClick={onLockAll}>
                 <LockIcon /> Lock all
               </button>
             )}

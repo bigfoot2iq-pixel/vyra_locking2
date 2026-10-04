@@ -130,7 +130,7 @@ export function LevelUpDialog({
             : `Level up to ${level + 1}`;
 
   return (
-    <Dialog title={`Guardian #${g.id.toString().padStart(4, "0")}`} kicker="◆ Level up" image={image} onClose={onClose}>
+    <Dialog title={`Guardian #${g.id.toString().padStart(4, "0")}`} kicker="◆ Level up" image={image} tier={l.tier} onClose={onClose}>
       <div style={tierStyle(l.tier) as CSSProperties}>
         <div className="card-row" style={{ marginBottom: 14 }}>
           <TierBadge tier={l.tier} className="tier-badge tier-badge-inline" />
@@ -233,7 +233,7 @@ export function LevelUpDialog({
 
             {error && <p className="notice notice-danger">{error}</p>}
             <button
-              className="gbtn gbtn-up gbtn-block gbtn-lg"
+              className="gbtn gbtn-gloss gbtn-tier gbtn-block gbtn-lg"
               disabled={!!busy || checking || !inRange || short || p.paused}
               onClick={act}
             >

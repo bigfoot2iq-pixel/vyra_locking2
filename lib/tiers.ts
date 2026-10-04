@@ -9,12 +9,14 @@ export interface TierMeta {
 }
 
 // Matches the collection's "Rarity" trait. Each tier borrows a material from the VYRA reforges.
+// Colours: OpenSea's rarity-badge palette for Common, Rare, Epic and Legendary. The trait itself carries no colour,
+// and OpenSea's palette has no Uncommon, so Uncommon takes a game-standard green between Common grey and Rare blue.
 export const TIERS: readonly TierMeta[] = [
-  { id: 0, name: "Common", material: "Gunmetal", color: "#a3a9b8", glow: "rgba(163,169,184,.45)" },
-  { id: 1, name: "Uncommon", material: "Geode", color: "#7fd8a6", glow: "rgba(127,216,166,.45)" },
-  { id: 2, name: "Rare", material: "Argent", color: "#8cc4ff", glow: "rgba(140,196,255,.5)" },
-  { id: 3, name: "Epic", material: "Hexbloom", color: "#b690ff", glow: "rgba(182,144,255,.55)" },
-  { id: 4, name: "Legendary", material: "Aurum", color: "#f2c25b", glow: "rgba(242,194,91,.55)" },
+  { id: 0, name: "Common", material: "Gunmetal", color: "#acadae", glow: "rgba(172,173,174,.45)" },
+  { id: 1, name: "Uncommon", material: "Geode", color: "#2fd07a", glow: "rgba(47,208,122,.45)" },
+  { id: 2, name: "Rare", material: "Argent", color: "#00a3ff", glow: "rgba(0,163,255,.5)" },
+  { id: 3, name: "Epic", material: "Hexbloom", color: "#d358ff", glow: "rgba(211,88,255,.55)" },
+  { id: 4, name: "Legendary", material: "Aurum", color: "#ff8a00", glow: "rgba(255,138,0,.55)" },
 ] as const;
 
 export const tierOf = (t: number | bigint | undefined): TierMeta => TIERS[Math.min(Number(t ?? 0), TIERS.length - 1)];

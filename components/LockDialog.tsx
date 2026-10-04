@@ -167,6 +167,7 @@ export function LockDialog({
       title={`Guardian #${g.id.toString().padStart(4, "0")}`}
       kicker={<>◆ {mode === "lock" ? "Lock" : "Renew lock"}</>}
       image={image}
+      tier={g.tier}
       onClose={onClose}
     >
       <div style={tierStyle(g.tier) as CSSProperties}>
@@ -308,7 +309,7 @@ export function LockDialog({
         )}
 
         <button
-          className="gbtn gbtn-lock gbtn-block gbtn-lg"
+          className="gbtn gbtn-gloss gbtn-tier gbtn-block gbtn-lg"
           disabled={!!busy || checking || blocked || !inRange || short || poolShort || p.paused}
           onClick={act}
         >

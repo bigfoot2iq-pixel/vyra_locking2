@@ -565,33 +565,42 @@ a {
   filter: none;
 }
 
-/* jade: every "lock" call. Polished emerald to match the open-lock coin, with a glossy top. It stays still:
-   the only moving shine belongs to locked cards' claim bars.
-   Colour language: emerald = available to lock, gold = locked and earning. */
-.gbtn-jade {
-  --face-hi: #b9fad6;
-  --face-mid: #4fd893;
-  --face-lo: #179d5e;
-  --base: #064227;
-  --ink-on: #03301a;
+/* gloss: polished face with a glossy top. Gold by default for page-wide actions (Lock all, Claim all);
+   add .gbtn-tier inside anything about one guardian to take its rarity colour instead. */
+.gbtn-gloss {
+  --face-hi: #fff0b0;
+  --face-mid: #f4c95a;
+  --face-lo: #e0a133;
+  --base: #6b400a;
+  --ink-on: #3a2204;
   --rim: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 1px 0 rgba(225, 255, 238, 0.65);
+  --gloss-glow: rgba(242, 194, 91, 0.28);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
   background:
     linear-gradient(180deg, var(--rim) 0, var(--rim) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08) 46%, transparent 47%),
     linear-gradient(180deg, var(--face-hi), var(--face-mid) 40%, var(--face-lo) calc(100% - 4px), var(--base) calc(100% - 4px));
-  box-shadow: 0 0 22px rgba(111, 242, 176, 0.28);
+  box-shadow: 0 0 22px var(--gloss-glow);
 }
 
-.gbtn-jade:active:not(:disabled) {
+.gbtn-gloss:active:not(:disabled) {
   background:
     linear-gradient(180deg, var(--rim) 0, var(--rim) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08) 46%, transparent 47%),
     linear-gradient(180deg, var(--face-hi), var(--face-mid) 40%, var(--face-lo) calc(100% - 1px), var(--base) calc(100% - 1px));
 }
 
-.gbtn-jade svg {
-  filter: drop-shadow(0 1px 0 rgba(225, 255, 238, 0.6));
+.gbtn-gloss svg {
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.45));
+}
+
+.gbtn-tier {
+  --face-hi: color-mix(in srgb, var(--tier) 45%, #fff);
+  --face-mid: var(--tier);
+  --face-lo: color-mix(in srgb, var(--tier) 72%, #000);
+  --base: color-mix(in srgb, var(--tier) 35%, #000);
+  --ink-on: color-mix(in srgb, var(--tier) 18%, #07040d);
+  --gloss-glow: color-mix(in srgb, var(--tier) 30%, transparent);
 }
 
 /* stone: secondary (unlock) */
@@ -1109,13 +1118,28 @@ a {
 }
 
 .card.tier-4::before {
-  background: conic-gradient(from var(--edge-angle), #f2c25b, #6e4a14 22%, #ffe3a1 45%, #8a611d 65%, #fff1c9 80%, #f2c25b);
+  background: conic-gradient(
+    from var(--edge-angle),
+    var(--tier),
+    color-mix(in srgb, var(--tier) 40%, #000) 22%,
+    color-mix(in srgb, var(--tier) 45%, #fff) 45%,
+    color-mix(in srgb, var(--tier) 55%, #000) 65%,
+    color-mix(in srgb, var(--tier) 25%, #fff) 80%,
+    var(--tier)
+  );
   padding: 1.5px;
   animation: edgeSpin 5s linear infinite;
 }
 
 .card.tier-3::before {
-  background: conic-gradient(from var(--edge-angle), #b690ff, #3b2270 30%, #e2d4ff 50%, #5b2fb0 75%, #b690ff);
+  background: conic-gradient(
+    from var(--edge-angle),
+    var(--tier),
+    color-mix(in srgb, var(--tier) 35%, #000) 30%,
+    color-mix(in srgb, var(--tier) 35%, #fff) 50%,
+    color-mix(in srgb, var(--tier) 60%, #000) 75%,
+    var(--tier)
+  );
   animation: edgeSpin 7s linear infinite;
 }
 
@@ -1126,8 +1150,8 @@ a {
 }
 
 .card.tier-4 .card-id {
-  color: var(--aurum-2);
-  text-shadow: 0 0 18px rgba(242, 194, 91, 0.55);
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
+  text-shadow: 0 0 18px var(--tier-glow);
 }
 
 .next-tribute {
@@ -2429,16 +2453,25 @@ select.input {
 }
 
 /* running lock: Claim and Level up share one row */
+/* two buttons sharing a card's width (Lock & earn + Buy): smaller type so both labels fit whole;
+   a long token symbol wraps the pair onto two lines instead of cutting text off */
 .card-actions-row {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .card-actions-row .gbtn {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 40px;
   padding-inline: 10px;
-  gap: 6px;
-  letter-spacing: 0.08em;
+  gap: 5px;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+}
+
+.card-actions-row .gbtn svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* unclaimed-day count inside the Claim button */
@@ -2489,7 +2522,12 @@ select.input {
 
 /* idle: the call to action. Full colour, a breathing edge, and what the guardian could earn. */
 .card-idle:not(.tier-3):not(.tier-4)::before {
-  background: linear-gradient(160deg, #6ff2b0, rgba(31, 165, 101, 0.5) 45%, rgba(168, 247, 205, 0.75));
+  background: linear-gradient(
+    160deg,
+    var(--tier),
+    color-mix(in srgb, var(--tier) 45%, transparent) 45%,
+    color-mix(in srgb, var(--tier) 60%, #fff)
+  );
   padding: 1.5px;
 }
 
@@ -2514,8 +2552,12 @@ select.input {
   display: grid;
   gap: 2px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(111, 242, 176, 0.14), rgba(111, 242, 176, 0.03) 70%);
-  border: 1px solid rgba(111, 242, 176, 0.32);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tier) 15%, transparent),
+    color-mix(in srgb, var(--tier) 3%, transparent) 70%
+  );
+  border: 1px solid color-mix(in srgb, var(--tier) 35%, transparent);
 }
 
 .card-pitch-kicker {
@@ -2524,20 +2566,20 @@ select.input {
   font-weight: 700;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #a8f7cd;
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
   opacity: 0.85;
 }
 
 .card-pitch-value {
   font-size: 1.55rem;
   line-height: 1.15;
-  color: #6ff2b0;
-  text-shadow: 0 0 20px rgba(111, 242, 176, 0.35);
+  color: var(--tier);
+  text-shadow: 0 0 20px var(--tier-glow);
 }
 
 .card-pitch-value small {
   font-size: 0.78rem;
-  color: #a8f7cd;
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
   text-shadow: none;
 }
 
@@ -2561,7 +2603,12 @@ select.input {
 }
 
 .card-locked:not(.tier-3):not(.tier-4)::before {
-  background: linear-gradient(160deg, rgba(185, 161, 255, 0.4), rgba(55, 42, 82, 0.5) 50%, rgba(55, 42, 82, 0.3));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--tier) 45%, transparent),
+    rgba(55, 42, 82, 0.5) 50%,
+    rgba(55, 42, 82, 0.3)
+  );
 }
 
 .card-locked .card-art img {
@@ -2575,8 +2622,8 @@ select.input {
 /* ward lines over the art: the guardian is behind the Keep's seal */
 .card-locked .card-art::after {
   background:
-    repeating-linear-gradient(135deg, rgba(185, 161, 255, 0.07) 0 1px, transparent 1px 9px),
-    linear-gradient(180deg, rgba(91, 47, 176, 0.18), transparent 45%),
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--tier) 8%, transparent) 0 1px, transparent 1px 9px),
+    linear-gradient(180deg, color-mix(in srgb, var(--tier) 16%, transparent), transparent 45%),
     linear-gradient(180deg, transparent 55%, rgba(18, 11, 32, 0.95));
 }
 
@@ -2588,7 +2635,7 @@ select.input {
   color: var(--ink-dim);
 }
 
-/* locked: a struck gold coin in the corner. Metal face, engraved inner ring, embossed lock. */
+/* status coin: the rarity colour struck as metal. A closed lock means locked, an open one means available. */
 .card-seal {
   position: absolute;
   top: 12px;
@@ -2599,23 +2646,38 @@ select.input {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  color: #4a2c05;
+  color: color-mix(in srgb, var(--tier) 22%, #07040d);
   background:
-    radial-gradient(circle at 32% 26%, rgba(255, 250, 225, 0.95) 0 8%, transparent 30%),
-    radial-gradient(circle, transparent 58%, rgba(90, 55, 8, 0.55) 60%, rgba(255, 236, 170, 0.7) 63%, transparent 66%),
-    conic-gradient(from 200deg, #ffe7a3, #c88a22, #fff0bd, #a8701a, #f6cf6c, #8c5a12, #ffe7a3);
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.9) 0 8%, transparent 30%),
+    radial-gradient(
+      circle,
+      transparent 58%,
+      color-mix(in srgb, var(--tier) 45%, #000) 60%,
+      color-mix(in srgb, var(--tier) 40%, #fff) 63%,
+      transparent 66%
+    ),
+    conic-gradient(
+      from 200deg,
+      color-mix(in srgb, var(--tier) 50%, #fff),
+      color-mix(in srgb, var(--tier) 80%, #000),
+      color-mix(in srgb, var(--tier) 30%, #fff),
+      color-mix(in srgb, var(--tier) 60%, #000),
+      var(--tier),
+      color-mix(in srgb, var(--tier) 45%, #000),
+      color-mix(in srgb, var(--tier) 50%, #fff)
+    );
   box-shadow:
-    inset 0 0 0 1.5px rgba(255, 244, 200, 0.85),
-    inset 0 -3px 5px rgba(90, 52, 6, 0.55),
-    0 0 0 1.5px #3a2204,
-    0 0 14px rgba(242, 194, 91, 0.35),
+    inset 0 0 0 1.5px color-mix(in srgb, var(--tier) 25%, #fff),
+    inset 0 -3px 5px color-mix(in srgb, var(--tier) 40%, #000),
+    0 0 0 1.5px color-mix(in srgb, var(--tier) 25%, #000),
+    0 0 14px var(--tier-glow),
     0 5px 12px rgba(0, 0, 0, 0.6);
 }
 
 .card-seal svg {
   width: 18px;
   height: 18px;
-  filter: drop-shadow(0 1px 0 rgba(255, 245, 205, 0.75));
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.6));
 }
 
 /* finished lock: wants a decision, so it glows gold */
@@ -2624,7 +2686,12 @@ select.input {
 }
 
 .card-done:not(.tier-3):not(.tier-4)::before {
-  background: linear-gradient(160deg, var(--aurum), rgba(155, 109, 34, 0.6) 50%, var(--aurum-2));
+  background: linear-gradient(
+    160deg,
+    var(--tier),
+    color-mix(in srgb, var(--tier) 50%, #000) 50%,
+    color-mix(in srgb, var(--tier) 55%, #fff)
+  );
   padding: 1.5px;
 }
 
@@ -2662,7 +2729,7 @@ select.input {
 /* ---------- conversion helpers: dollar values, presets, wallet guidance ---------- */
 
 .card-pitch-usd {
-  color: #a8f7cd;
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
   font-weight: 600;
 }
 
@@ -3046,24 +3113,7 @@ a.gbtn {
   text-align: center;
 }
 
-/* available: an open lock on polished emerald, the same coin shape as the locked seal */
-.card-seal.card-seal-open {
-  color: #04331c;
-  background:
-    radial-gradient(circle at 32% 26%, rgba(235, 255, 244, 0.9) 0 8%, transparent 30%),
-    radial-gradient(circle, transparent 58%, rgba(4, 60, 34, 0.5) 60%, rgba(200, 255, 225, 0.6) 63%, transparent 66%),
-    conic-gradient(from 200deg, #a8f7cd, #1fa565, #d4ffe8, #138150, #6ff2b0, #0d6a40, #a8f7cd);
-  box-shadow:
-    inset 0 0 0 1.5px rgba(220, 255, 236, 0.85),
-    inset 0 -3px 5px rgba(4, 60, 34, 0.5),
-    0 0 0 1.5px #032a17,
-    0 0 16px rgba(111, 242, 176, 0.4),
-    0 5px 12px rgba(0, 0, 0, 0.6);
-}
 
-.card-seal.card-seal-open svg {
-  filter: drop-shadow(0 1px 0 rgba(225, 255, 240, 0.7));
-}
 
 .card-row-end {
   display: inline-flex;
@@ -3085,9 +3135,9 @@ a.gbtn {
 
 .claimbar {
   --p: 0%;
-  --fill-hi: #e9b856;
-  --fill-lo: #8c5a12;
-  --fill-ink: #2a1803;
+  --fill-hi: color-mix(in srgb, var(--tier) 80%, #fff);
+  --fill-lo: color-mix(in srgb, var(--tier) 55%, #000);
+  --fill-ink: color-mix(in srgb, var(--tier) 18%, #07040d);
   position: relative;
   flex: 1;
   min-width: 0;
@@ -3105,15 +3155,15 @@ a.gbtn {
 }
 
 .claimbar.is-ready {
-  --fill-hi: #fff0b0;
-  --fill-lo: #e0a133;
+  --fill-hi: color-mix(in srgb, var(--tier) 45%, #fff);
+  --fill-lo: var(--tier);
   cursor: pointer;
   animation: readyPulse 2.4s ease-in-out infinite;
 }
 
 @keyframes readyPulse {
   50% {
-    filter: drop-shadow(0 0 14px rgba(242, 194, 91, 0.55)) brightness(1.06);
+    filter: drop-shadow(0 0 14px var(--tier-glow)) brightness(1.06);
   }
 }
 
@@ -3131,7 +3181,7 @@ a.gbtn {
 
 /* time left: a recessed dark groove */
 .claimbar-track {
-  color: color-mix(in srgb, var(--aurum) 55%, var(--ink-dim));
+  color: color-mix(in srgb, var(--tier) 55%, var(--ink-dim));
   background:
     repeating-linear-gradient(90deg, transparent 0 11px, rgba(255, 255, 255, 0.025) 11px 12px),
     linear-gradient(180deg, #0b0716, #160e29);
@@ -3160,15 +3210,15 @@ a.gbtn {
 }
 
 .claimbar.is-ready .claimbar-track {
-  color: var(--aurum-2);
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
 }
 
 .claimbar.is-ready {
-  filter: drop-shadow(0 0 10px rgba(242, 194, 91, 0.25));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--tier) 25%, transparent));
 }
 
 .claimbar.is-ready:hover:not(:disabled) {
-  filter: drop-shadow(0 0 14px rgba(242, 194, 91, 0.45)) brightness(1.08);
+  filter: drop-shadow(0 0 14px var(--tier-glow)) brightness(1.08);
 }
 
 .claimbar:active:not(:disabled) {
@@ -3262,8 +3312,8 @@ a.gbtn {
   color: var(--ink-faint);
 }
 
-.card-facts .is-gold dd {
-  color: var(--aurum);
+.card-facts .is-tier dd {
+  color: var(--tier);
 }
 
 .card-facts-meter {
@@ -3276,5 +3326,43 @@ a.gbtn {
 .card-facts-meter > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--aurum-deep), var(--aurum));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tier) 50%, #000), var(--tier));
+}
+
+/* on a guardian's card, tribute amounts take its rarity colour */
+.card .claimable {
+  color: var(--tier);
+}
+
+.card .due-days {
+  border-color: color-mix(in srgb, var(--tier) 50%, transparent);
+  background: color-mix(in srgb, var(--tier) 10%, transparent);
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
+}
+
+/* a guardian's dialog takes its rarity colour for every accent */
+.dialog-tier .kicker {
+  color: color-mix(in srgb, var(--tier) 65%, #fff);
+}
+
+.dialog-tier .dialog-head img {
+  box-shadow: 0 0 22px var(--tier-glow);
+}
+
+.dialog-tier .dialog-close:hover {
+  border-color: var(--tier);
+}
+
+.dialog-tier .input:focus {
+  border-color: var(--tier);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tier) 20%, transparent);
+}
+
+.dialog-tier .step-line.active {
+  color: color-mix(in srgb, var(--tier) 55%, #fff);
+}
+
+.dialog-tier .gem-sm {
+  background: var(--tier);
+  box-shadow: 0 0 8px var(--tier-glow);
 }

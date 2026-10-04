@@ -8,7 +8,7 @@ import { maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
-import { addresses, isConfigured } from "@/lib/env";
+import { addresses, buyUrlFor, isConfigured } from "@/lib/env";
 import { bpsToPct, DAY, fmtClock, fmtToken, plural, usdOf } from "@/lib/format";
 import { TIERS } from "@/lib/tiers";
 import { burstFrom } from "./fx/burst";
@@ -52,6 +52,12 @@ export function Keep() {
   const lockable = gs.idle.filter((g) => maxTribute(p.tiers?.[g.tier], p.durationDays) !== undefined);
   const idleUpside = lockable.reduce((a, g) => a + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
   const canLock = lockable.length > 0 && !p.paused && p.keepAllowed !== false;
+  // The cheapest lock any idle guardian allows (level 1, no fee); below it the wallet can't lock anything.
+  const cheapest = lockable.reduce<bigint | undefined>((m, g) => {
+    const min = p.tiers![g.tier].levels[0].minAmount;
+    return m === undefined || min < m ? min : m;
+  }, undefined);
+  const buyUrl = cheapest !== undefined && p.balance !== undefined && p.balance < cheapest ? buyUrlFor(p.token) : undefined;
   const openLockAll = () => setModal({ kind: "lockall" });
 
   const claim = async (ids: bigint[], from?: HTMLElement) => {
@@ -120,6 +126,11 @@ export function Keep() {
                   <button className="gbtn gbtn-treasure gbtn-lg" disabled={!!busy || !canLock} onClick={openLockAll}>
                     <LockIcon /> Lock {lockable.length === 1 ? "your guardian" : `all ${lockable.length}`}
                   </button>
+                )}
+                {buyUrl && (
+                  <a className="gbtn gbtn-stone gbtn-lg" href={buyUrl} target="_blank" rel="noreferrer">
+                    Buy {p.symbol} ↗
+                  </a>
                 )}
                 {claimable.length > 0 && (
                   <button
@@ -225,6 +236,7 @@ export function Keep() {
           usd={usd}
           idleUpside={idleUpside}
           canLock={canLock}
+          buyUrl={buyUrl}
           onLockAll={openLockAll}
           isLoading={gs.isLoading}
           protocol={p}
@@ -325,6 +337,11 @@ export function Keep() {
             <button className="gbtn gbtn-treasure" disabled={!!busy || !canLock} onClick={openLockAll}>
               <LockIcon /> Lock {lockable.length === 1 ? "1" : `all ${lockable.length}`}
             </button>
+          )}
+          {buyUrl && (
+            <a className="gbtn gbtn-stone" href={buyUrl} target="_blank" rel="noreferrer">
+              Buy {p.symbol} ↗
+            </a>
           )}
           {claimable.length > 0 && (
             <button className="gbtn gbtn-gold" disabled={!!busy} onClick={(e) => claim(claimable.map((g) => g.id), e.currentTarget)}>

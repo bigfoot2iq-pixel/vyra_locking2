@@ -13,7 +13,7 @@ export function ShortNotice({ protocol: p, pay }: { protocol: Protocol; pay: big
       </span>
       {buy && (
         <a className="notice-link" href={buy} target="_blank" rel="noreferrer">
-          Get {p.symbol} ↗
+          Buy {p.symbol} ↗
         </a>
       )}
     </p>

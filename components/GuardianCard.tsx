@@ -3,6 +3,7 @@
 import type { CSSProperties, PointerEvent } from "react";
 import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
 import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { buyUrlFor } from "@/lib/env";
 import { bpsToPct, DAY, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
 import { GuardianArt } from "./GuardianArt";
@@ -37,6 +38,8 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   const ended = !!l && now >= l.end;
   const tierClosed = !first || first.maxAmount === 0n;
   const earnUpTo = maxTribute(cfg, p.durationDays);
+  // Can't cover even a level 1 lock (which has no fee): point straight at where to buy.
+  const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < first.minAmount ? buyUrlFor(p.token) : undefined;
   const owedDays = unclaimedDays(g, now);
   const canLevelUp = !!l && !ended && !p.paused && l.level < topLevel(p.tiers?.[l.tier]);
 
@@ -155,11 +158,21 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 {tierClosed || !last ? "—" : `${fmtToken(first.minAmount, p.decimals)}–${fmtToken(last.maxAmount, p.decimals)} ${p.symbol}`}
               </span>
             </div>
-            <div className="card-actions">
+            <div className={`card-actions${buyUrl ? " card-actions-row" : ""}`}>
               <button className="gbtn gbtn-treasure" disabled={busy || p.paused || tierClosed} onClick={onLock}>
                 <LockIcon /> Lock &amp; earn
               </button>
+              {buyUrl && (
+                <a className="gbtn gbtn-stone" href={buyUrl} target="_blank" rel="noreferrer" title={`Buy ${p.symbol} on Sentry`}>
+                  Buy {p.symbol} ↗
+                </a>
+              )}
             </div>
+            {buyUrl && (
+              <p className="card-buy-note">
+                Level 1 needs {fmtToken(first?.minAmount, p.decimals)} {p.symbol}. You have {fmtToken(p.balance, p.decimals)}.
+              </p>
+            )}
           </>
         )}
       </div>

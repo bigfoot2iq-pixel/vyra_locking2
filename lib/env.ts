@@ -30,6 +30,9 @@ export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || undefined;
 
 export const explorerUrl = activeChain.blockExplorers?.default.url.replace(/\/$/, "");
 
-/** Where to get the token: NEXT_PUBLIC_BUY_URL, else its DexScreener page on Ink mainnet (testnets have no market). */
-export const buyUrlFor = (token: Address | undefined) =>
-  process.env.NEXT_PUBLIC_BUY_URL || (token && activeChain.id === ink.id ? `https://dexscreener.com/ink/${token}` : undefined);
+/** Where to buy the token: its Sentry page, built from whatever token the Keep is set to. NEXT_PUBLIC_BUY_URL overrides it. */
+export function buyUrlFor(token: Address | undefined): string | undefined {
+  if (process.env.NEXT_PUBLIC_BUY_URL) return process.env.NEXT_PUBLIC_BUY_URL;
+  if (!token) return undefined;
+  return `https://www.sentry.trading/desktop/v2/tokens?${new URLSearchParams({ chain: "ink", q: token, token })}`;
+}

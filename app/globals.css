@@ -3080,3 +3080,16 @@ select.input {
     animation: none;
   }
 }
+
+/* ---------- buy the token ---------- */
+
+a.gbtn {
+  text-decoration: none;
+}
+
+.card-buy-note {
+  margin: -6px 0 0;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  text-align: center;
+}

@@ -19,6 +19,8 @@ interface Props {
   /** What the lockable idle guardians could earn, each at its tier's top level. */
   idleUpside: bigint;
   canLock: boolean;
+  /** Set when the wallet can't afford any lock: where to buy the token. */
+  buyUrl?: string;
   onLockAll: () => void;
   isLoading: boolean;
   protocol: Protocol;
@@ -41,6 +43,7 @@ export function Roster({
   usd,
   idleUpside,
   canLock,
+  buyUrl,
   onLockAll,
   isLoading,
   protocol: p,
@@ -178,6 +181,11 @@ export function Roster({
               <button className="gbtn gbtn-treasure gbtn-sm" disabled={busy || !canLock} onClick={onLockAll}>
                 <LockIcon /> Lock all
               </button>
+            )}
+            {buyUrl && (
+              <a className="gbtn gbtn-stone gbtn-sm" href={buyUrl} target="_blank" rel="noreferrer">
+                Buy {p.symbol} ↗
+              </a>
             )}
             {due.length > 0 && (
               <button className="gbtn gbtn-gold gbtn-sm" disabled={busy} onClick={(e) => onClaimAll(e.currentTarget)}>

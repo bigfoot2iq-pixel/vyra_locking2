@@ -4,12 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAdminAccess } from "@/hooks/useAdminAccess";
-import { activeChain } from "@/lib/env";
+import { useProtocol } from "@/hooks/useProtocol";
+import { activeChain, buyUrlFor } from "@/lib/env";
 import { WalletButton } from "./WalletButton";
 
 export function SiteHeader() {
   const path = usePathname();
   const { allowed: isAdmin } = useAdminAccess();
+  const p = useProtocol();
+  const buy = buyUrlFor(p.token);
 
   return (
     <header className="site-header">
@@ -25,15 +28,30 @@ export function SiteHeader() {
           <Link href="/" aria-current={path === "/" ? "page" : undefined}>
             The Keep
           </Link>
-          <a href="https://opensea.io/collection/vyranfts/overview" target="_blank" rel="noreferrer">
-            Collection
-          </a>
           {isAdmin && (
             <Link href="/admin" aria-current={path === "/admin" ? "page" : undefined}>
               Council
             </Link>
           )}
         </nav>
+        <div className="market-links">
+          <a
+            className="market-pill market-opensea"
+            href="https://opensea.io/collection/vyranfts/overview"
+            target="_blank"
+            rel="noreferrer"
+            title="VYRA collection on OpenSea"
+          >
+            <Image src="/brands/opensea.png" alt="" width={22} height={22} />
+            <span className="market-label">Collection</span>
+          </a>
+          {buy && (
+            <a className="market-pill market-sentry" href={buy} target="_blank" rel="noreferrer" title={`Buy ${p.symbol} on Sentry`}>
+              <Image src="/brands/sentry.png" alt="" width={22} height={22} />
+              <span className="market-label">{p.token ? p.symbol : "Token"}</span>
+            </a>
+          )}
+        </div>
         <span className="chain-pill">
           <span className="gem-sm gem-pulse" /> {activeChain.name}
         </span>

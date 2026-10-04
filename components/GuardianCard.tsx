@@ -1,16 +1,15 @@
 "use client";
 
-import type { CSSProperties, PointerEvent } from "react";
+import type { CSSProperties, PointerEvent, ReactNode } from "react";
 import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
 import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { buyUrlFor } from "@/lib/env";
-import { bpsToPct, DAY, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
+import { bpsToPct, DAY, fmtClock, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
 import { GuardianArt } from "./GuardianArt";
 import { ClaimIcon, LevelUpIcon, LockIcon, RenewIcon, UnlockIcon } from "./icons";
 import { LevelPip } from "./LevelPip";
 import { TierBadge, tierStyle } from "./TierBadge";
-import { VigilTrack } from "./VigilTrack";
 
 interface Props {
   guardian: Guardian;
@@ -52,89 +51,93 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
       <div className="card-art">
         <GuardianArt tokenId={g.id} />
         <TierBadge tier={g.tier} />
-        <span className={`card-status card-status-${!l ? "idle" : ended ? "done" : "locked"}`}>
-          {!l ? (
-            "Idle"
-          ) : ended ? (
-            "Lock complete"
-          ) : (
-            <>
-              <LockIcon /> Locked
-            </>
-          )}
-        </span>
-        <span className="card-id">#{g.id.toString().padStart(4, "0")}</span>
-        {l && !ended && (
-          <span className="card-seal" aria-hidden>
+        {!l ? (
+          <span className="card-seal card-seal-open" role="img" aria-label="Available to lock" title="Available to lock">
+            <UnlockIcon />
+          </span>
+        ) : ended ? (
+          <span className="card-status card-status-done">Lock complete</span>
+        ) : (
+          <span className="card-seal" role="img" aria-label="Locked" title="Locked">
             <LockIcon />
           </span>
         )}
+        <span className="card-id">#{g.id.toString().padStart(4, "0")}</span>
       </div>
 
       <div className="card-body">
         {l ? (
           <>
             <div className="card-row">
-              <VigilTrack lock={l} claimedDays={g.claimedDays} now={now} />
-              <LevelPip level={l.level} />
-            </div>
-            <div className="card-row">
-              <span className="dim">
-                {ended ? "Lock complete" : `Day ${Math.min(Math.floor((now - l.start) / DAY) + 1, l.durationDays)} of ${l.durationDays}`}
-              </span>
-              <span className="num faint">{ended ? "—" : `ends in ${fmtDuration(l.end - now)}`}</span>
-            </div>
-            <div className="card-row">
               <span className="dim">{ended ? "Locked" : "Earning"}</span>
-              <span className="num" title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day`}>
-                {ended
-                  ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
-                  : `+${fmtToken((l.amount * BigInt(l.rateBps)) / 10_000n, p.decimals)} ${p.symbol}/day`}
+              <span className="card-row-end">
+                <span className="num" title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day`}>
+                  {ended
+                    ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
+                    : `+${fmtToken((l.amount * BigInt(l.rateBps)) / 10_000n, p.decimals)} ${p.symbol}/day`}
+                </span>
+                <LevelPip level={l.level} label={false} />
               </span>
             </div>
-            <div className="card-row">
-              <span className="dim">Tribute due</span>
-              <span className="num claimable">
-                {fmtToken(g.pending, p.decimals)} {p.symbol}
-                {!!owedDays && (
-                  <span className="due-days" title={`${plural(owedDays, "day")} of tribute waiting to be claimed`}>
-                    {plural(owedDays, "day")}
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className={`card-actions${ended ? "" : " card-actions-row"}`}>
-              {!!g.pending && g.pending > 0n && (
-                <button
-                  className="gbtn gbtn-gold gbtn-sm"
-                  disabled={busy}
-                  onClick={(e) => onClaim(e.currentTarget)}
-                  title={owedDays ? `Claim ${plural(owedDays, "day")} of tribute` : undefined}
-                >
-                  <ClaimIcon /> Claim
+            {ended && (
+              <div className="card-row">
+                <span className="dim">Tribute due</span>
+                <span className="num claimable">
+                  {fmtToken(g.pending, p.decimals)} {p.symbol}
                   {!!owedDays && (
-                    <span className="gbtn-count num" aria-label={plural(owedDays, "day")}>
-                      {owedDays}d
+                    <span className="due-days" title={`${plural(owedDays, "day")} of tribute waiting to be claimed`}>
+                      {plural(owedDays, "day")}
                     </span>
                   )}
-                </button>
-              )}
-              {canLevelUp && (
-                <button className="gbtn gbtn-up gbtn-sm" disabled={busy} onClick={onLevelUp} title="Raise this lock's level and lock more">
-                  <LevelUpIcon /> Level up
-                </button>
-              )}
-              {ended && (
-                <>
-                  <button className="gbtn gbtn-lock gbtn-sm" disabled={busy || p.paused} onClick={onRenew}>
-                    <RenewIcon /> Renew
+                </span>
+              </div>
+            )}
+            {ended ? (
+              <div className="card-actions">
+                {!!g.pending && g.pending > 0n && (
+                  <button className="gbtn gbtn-gold gbtn-sm" disabled={busy} onClick={(e) => onClaim(e.currentTarget)}>
+                    <ClaimIcon /> Claim
                   </button>
-                  <button className="gbtn gbtn-stone gbtn-sm" disabled={busy} onClick={onUnlock}>
-                    <UnlockIcon /> Unlock
+                )}
+                <button className="gbtn gbtn-lock gbtn-sm" disabled={busy || p.paused} onClick={onRenew}>
+                  <RenewIcon /> Renew
+                </button>
+                <button className="gbtn gbtn-stone gbtn-sm" disabled={busy} onClick={onUnlock}>
+                  <UnlockIcon /> Unlock
+                </button>
+              </div>
+            ) : (
+              <div className="card-actions card-actions-bar">
+                <ClaimBar
+                  progress={(now - l.start) / (l.end - l.start)}
+                  ready={!!g.pending && g.pending > 0n}
+                  disabled={busy}
+                  onClaim={onClaim}
+                  title={owedDays ? `Claim ${plural(owedDays, "day")} of tribute` : "Tribute builds up every day"}
+                  label={
+                    g.pending && g.pending > 0n ? (
+                      <>
+                        <ClaimIcon /> Claim {fmtToken(g.pending, p.decimals)}
+                      </>
+                    ) : (
+                      <>Next in {fmtClock(l.start + (Math.floor((now - l.start) / DAY) + 1) * DAY - now)}</>
+                    )
+                  }
+                  meta={`${fmtDuration(l.end - now)} left`}
+                />
+                {canLevelUp && (
+                  <button
+                    className="gbtn gbtn-up gbtn-sm card-levelup"
+                    disabled={busy}
+                    onClick={onLevelUp}
+                    title="Level up: lock more, earn more"
+                    aria-label="Level up"
+                  >
+                    <LevelUpIcon />
                   </button>
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -177,6 +180,52 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * The claim button doubles as the lock's timeline: the filled part is time served, the dark part time left.
+ * The label is drawn twice (light on the track, dark on the fill) and the fill clips it, so text stays crisp
+ * wherever the edge falls.
+ */
+function ClaimBar({
+  progress,
+  ready,
+  disabled,
+  onClaim,
+  title,
+  label,
+  meta,
+}: {
+  progress: number;
+  ready: boolean;
+  disabled: boolean;
+  onClaim: (from: HTMLElement) => void;
+  title: string;
+  label: ReactNode;
+  meta: string;
+}) {
+  const pct = `${Math.round(Math.min(1, Math.max(0, progress)) * 1000) / 10}%`;
+  const content = (
+    <>
+      <span className="claimbar-label">{label}</span>
+      <span className="claimbar-meta num">{meta}</span>
+    </>
+  );
+  return (
+    <button
+      className={`claimbar${ready ? " is-ready" : ""}`}
+      style={{ "--p": pct } as CSSProperties}
+      disabled={disabled || !ready}
+      onClick={(e) => onClaim(e.currentTarget)}
+      title={title}
+      aria-label={`${ready ? "Claim tribute" : "Nothing to claim yet"}, lock ${pct} complete`}
+    >
+      <span className="claimbar-track">{content}</span>
+      <span className="claimbar-fill" aria-hidden>
+        {content}
+      </span>
+    </button>
   );
 }
 

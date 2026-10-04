@@ -289,6 +289,66 @@ a {
   color: var(--violet-2);
 }
 
+/* marketplace links: rounded pills in the platforms' own style, brand mark first */
+.market-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-pill {
+  --brand: #2081e2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-decoration: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.market-pill img {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.market-pill:hover {
+  border-color: color-mix(in srgb, var(--brand) 70%, transparent);
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 30%, transparent);
+  transform: translateY(-1px);
+}
+
+.market-pill:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.market-sentry {
+  --brand: #5fe0a8;
+}
+
+@media (max-width: 720px) {
+  .market-pill {
+    padding: 0 6px;
+  }
+  .market-label {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   .chain-pill,
   .brand-sub {
@@ -1222,68 +1282,6 @@ a {
 .claimable {
   color: var(--aurum);
   font-size: 1.05rem;
-}
-
-/* ---------- vigil track ---------- */
-
-.vigil {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  align-items: center;
-}
-
-.vigil .day {
-  position: relative;
-  width: 13px;
-  height: 13px;
-  transform: rotate(45deg);
-  border: 1px solid var(--edge);
-  background: transparent;
-  transition: all 0.4s var(--ease);
-}
-
-/* claimable: a cut gem in the tier's colour — bevelled facets, crisp edge, no animation */
-.vigil .day.due {
-  border: 1px solid color-mix(in srgb, var(--tier) 55%, #fff);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 38%),
-    linear-gradient(315deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0) 45%),
-    var(--tier);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.35),
-    0 0 6px color-mix(in srgb, var(--tier) 45%, transparent);
-}
-
-/* claimed: the same gem, spent: dim and desaturated */
-.vigil .day.claimed {
-  border-color: color-mix(in srgb, var(--tier) 30%, var(--edge));
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 40%),
-    color-mix(in srgb, var(--tier) 22%, var(--void-2));
-}
-
-.vigil .day.now {
-  overflow: hidden;
-}
-
-.vigil .day.now {
-  border-color: color-mix(in srgb, var(--tier) 70%, transparent);
-}
-
-.vigil .day.now::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: var(--fill, 0%);
-  background: color-mix(in srgb, var(--tier) 55%, transparent);
-}
-
-.vigil-compact .day {
-  width: 9px;
-  height: 9px;
 }
 
 .progress {
@@ -2514,21 +2512,6 @@ select.input {
 
 /* ---------- roster card states: idle invites, locked rests ---------- */
 
-.card-status svg {
-  width: 11px;
-  height: 11px;
-}
-
-.card-status-idle {
-  border-color: rgba(242, 194, 91, 0.45);
-  color: var(--aurum-2);
-}
-
-.card-status-locked {
-  border-color: rgba(185, 161, 255, 0.4);
-  color: var(--violet-2);
-}
-
 .card-status-done {
   border-color: rgba(242, 194, 91, 0.6);
   color: var(--aurum-2);
@@ -2636,16 +2619,16 @@ select.input {
   color: var(--ink-dim);
 }
 
-/* a struck gold coin: metal face, engraved inner ring, embossed lock */
+/* locked: a struck gold coin in the corner. Metal face, engraved inner ring, embossed lock. */
 .card-seal {
   position: absolute;
-  right: 14px;
-  bottom: 12px;
-  z-index: 1;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   color: #4a2c05;
   background:
@@ -3092,4 +3075,172 @@ a.gbtn {
   font-size: 0.72rem;
   color: var(--ink-faint);
   text-align: center;
+}
+
+/* available: an open lock on polished emerald, the same coin shape as the locked seal */
+.card-seal.card-seal-open {
+  color: #04331c;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(235, 255, 244, 0.9) 0 8%, transparent 30%),
+    radial-gradient(circle, transparent 58%, rgba(4, 60, 34, 0.5) 60%, rgba(200, 255, 225, 0.6) 63%, transparent 66%),
+    conic-gradient(from 200deg, #a8f7cd, #1fa565, #d4ffe8, #138150, #6ff2b0, #0d6a40, #a8f7cd);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(220, 255, 236, 0.85),
+    inset 0 -3px 5px rgba(4, 60, 34, 0.5),
+    0 0 0 1.5px #032a17,
+    0 0 16px rgba(111, 242, 176, 0.4),
+    0 5px 12px rgba(0, 0, 0, 0.6);
+}
+
+.card-seal.card-seal-open svg {
+  filter: drop-shadow(0 1px 0 rgba(225, 255, 240, 0.7));
+}
+
+.card-row-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- claim bar: the claim button is the lock's timeline ---------- */
+
+.card-actions-bar {
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.card-levelup {
+  flex: 0 0 46px !important;
+  padding: 0 0 4px;
+}
+
+.claimbar {
+  --p: 0%;
+  --fill-hi: #8e66f0;
+  --fill-lo: #4f24a8;
+  --fill-ink: #fff;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-display), serif;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: default;
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+}
+
+.claimbar.is-ready {
+  --fill-hi: #ffe08a;
+  --fill-lo: #d99a2b;
+  --fill-ink: #2a1803;
+  cursor: pointer;
+}
+
+.claimbar-track,
+.claimbar-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+/* time left: a recessed dark groove */
+.claimbar-track {
+  color: var(--ink-dim);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 11px, rgba(255, 255, 255, 0.025) 11px 12px),
+    linear-gradient(180deg, #0b0716, #160e29);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.7),
+    inset 0 0 0 1px var(--edge);
+}
+
+/* time served: a lit bar with a glossy top and a hot leading edge; it clips its own copy of the label */
+.claimbar-fill {
+  color: var(--fill-ink);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.06) 48%, transparent 50%),
+    linear-gradient(90deg, transparent calc(100% - 3px), rgba(255, 255, 255, 0.9)) left / var(--p) 100% no-repeat,
+    linear-gradient(180deg, var(--fill-hi), var(--fill-lo));
+  clip-path: inset(0 calc(100% - var(--p)) 0 0);
+  text-shadow: none;
+}
+
+.claimbar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%) -100% 0 / 60% 100% no-repeat;
+  animation: barSheen 3s var(--ease) infinite;
+}
+
+.claimbar.is-ready .claimbar-track {
+  color: var(--aurum-2);
+}
+
+.claimbar.is-ready {
+  filter: drop-shadow(0 0 10px rgba(242, 194, 91, 0.25));
+}
+
+.claimbar.is-ready:hover:not(:disabled) {
+  filter: drop-shadow(0 0 14px rgba(242, 194, 91, 0.45)) brightness(1.08);
+}
+
+.claimbar:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.claimbar:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.claimbar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claimbar-label svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.claimbar-meta {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.85;
+}
+
+@keyframes barSheen {
+  0%,
+  40% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 250% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claimbar-fill::after {
+    animation: none;
+  }
 }

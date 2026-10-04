@@ -39,3 +39,9 @@ export const DAY = 86400;
 
 /** "1 day" / "3 days". */
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** "≈ $12.30" for a token amount, or "" while there is no price. */
+export function usdOf(value: bigint | undefined, decimals: number, usd: number | undefined): string {
+  if (value === undefined || usd === undefined) return "";
+  return `≈ ${fmtUsd(Number(formatUnits(value, decimals)) * usd)}`;
+}

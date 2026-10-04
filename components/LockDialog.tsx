@@ -13,7 +13,9 @@ import { Dialog } from "./Dialog";
 import { LockIcon, RenewIcon } from "./icons";
 import { useCeremony } from "./fx/Ceremony";
 import { useGuardianImage } from "./GuardianArt";
+import { ShortNotice } from "./ShortNotice";
 import { TierBadge, tierStyle } from "./TierBadge";
+import { WalletHint } from "./WalletHint";
 
 const BPS = 10_000n;
 
@@ -32,11 +34,14 @@ export function LockDialog({
   protocol: p,
   mode,
   onClose,
+  onLocked,
 }: {
   guardian: Guardian;
   protocol: Protocol;
   mode: "lock" | "renew";
   onClose: () => void;
+  /** Called with the guardian's id once the lock or renewal lands. */
+  onLocked?: (ids: bigint[]) => void;
 }) {
   const image = useGuardianImage(g.id);
   const usd = useTokenUsd(p.token);
@@ -87,6 +92,12 @@ export function LockDialog({
     setInput(formatUnits(levels[i].maxAmount, p.decimals));
   }
 
+  const presets = [
+    { label: "Min", value: min },
+    { label: "Half", value: min + (max - min) / 2n },
+    { label: "Max", value: max },
+  ];
+
   function setFromSlider(permille: number) {
     setInput(formatUnits(min + ((max - min) * BigInt(permille)) / 1000n, p.decimals));
   }
@@ -132,6 +143,7 @@ export function LockDialog({
         { onError },
       );
       if (ok) {
+        onLocked?.([g.id]);
         onClose();
         celebrate({ kind: mode, tokenId: g.id, tier: g.tier, level, image, days: Number(days) });
       }
@@ -212,6 +224,20 @@ export function LockDialog({
             style={{ "--pct": `${pct}%` } as CSSProperties}
             aria-label="Lock amount"
           />
+          <div className="amount-presets" role="group" aria-label="Quick amounts">
+            {presets.map((x) => (
+              <button
+                key={x.label}
+                type="button"
+                className="amount-preset"
+                aria-pressed={amount === x.value}
+                disabled={max === 0n || !!busy}
+                onClick={() => setInput(formatUnits(x.value, p.decimals))}
+              >
+                {x.label}
+              </button>
+            ))}
+          </div>
           <div className="card-row faint">
             <span>{usd !== undefined && amount ? `≈ ${usdOf(a)}` : ""}</span>
             <span className="num">
@@ -252,7 +278,7 @@ export function LockDialog({
           </p>
         )}
         {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
-        {short && <p className="notice notice-danger">Not enough {p.symbol} in your wallet.</p>}
+        <ShortNotice protocol={p} pay={pay} />
         {poolShort && (
           <p className="notice notice-warn">The reward pool can&apos;t back this much tribute right now. Try a smaller amount.</p>
         )}
@@ -265,6 +291,7 @@ export function LockDialog({
         )}
         {error && <p className="notice notice-danger">{error}</p>}
 
+        {!checking && !blocked && !running && <WalletHint count={todo.length} oneTime={needNft} />}
         {!checking && !blocked && (todo.length > 1 || (running !== null && planned > 1)) && (
           <div className="steps" style={{ margin: "18px 0" }}>
             {steps.map((s) => {

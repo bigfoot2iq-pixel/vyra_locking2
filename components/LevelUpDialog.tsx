@@ -10,6 +10,7 @@ import { vyraLockingAbi } from "@/lib/abis";
 import { addresses } from "@/lib/env";
 import { bpsToPct, DAY, fmtToken, fmtUsd } from "@/lib/format";
 import { Dialog } from "./Dialog";
+import { ShortNotice } from "./ShortNotice";
 import { LevelUpIcon } from "./icons";
 import { useCeremony } from "./fx/Ceremony";
 import { useGuardianImage } from "./GuardianArt";
@@ -228,7 +229,7 @@ export function LevelUpDialog({
             </p>
 
             {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
-            {short && <p className="notice notice-danger">Not enough {p.symbol} in your wallet.</p>}
+            <ShortNotice protocol={p} pay={pay} />
 
             {error && <p className="notice notice-danger">{error}</p>}
             <button

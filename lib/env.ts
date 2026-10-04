@@ -29,3 +29,7 @@ export const tokenUsdOverride = process.env.NEXT_PUBLIC_TOKEN_USD_PRICE
 export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || undefined;
 
 export const explorerUrl = activeChain.blockExplorers?.default.url.replace(/\/$/, "");
+
+/** Where to get the token: NEXT_PUBLIC_BUY_URL, else its DexScreener page on Ink mainnet (testnets have no market). */
+export const buyUrlFor = (token: Address | undefined) =>
+  process.env.NEXT_PUBLIC_BUY_URL || (token && activeChain.id === ink.id ? `https://dexscreener.com/ink/${token}` : undefined);

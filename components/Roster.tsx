@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Guardian } from "@/hooks/useGuardians";
 import { maxTribute, type Protocol } from "@/hooks/useProtocol";
-import { fmtToken, plural } from "@/lib/format";
-import { ClaimIcon } from "./icons";
+import { fmtToken, plural, usdOf } from "@/lib/format";
+import { ClaimIcon, LockIcon } from "./icons";
 
 type Filter = "all" | "idle" | "locked" | "due";
 
@@ -15,6 +15,11 @@ interface Props {
   /** Unclaimed days summed across all locked guardians. */
   owedDays: number;
   now: number;
+  usd: number | undefined;
+  /** What the lockable idle guardians could earn, each at its tier's top level. */
+  idleUpside: bigint;
+  canLock: boolean;
+  onLockAll: () => void;
   isLoading: boolean;
   protocol: Protocol;
   busy: boolean;
@@ -27,8 +32,25 @@ interface Props {
  * Every guardian the wallet holds in one grid. Cards that want a decision lead (finished locks to renew,
  * then idle guardians to lock); running locks settle at the end, where they can be left alone.
  */
-export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, protocol: p, busy, claiming, onClaimAll, renderCard }: Props) {
+export function Roster({
+  locked,
+  idle,
+  totalPending,
+  owedDays,
+  now,
+  usd,
+  idleUpside,
+  canLock,
+  onLockAll,
+  isLoading,
+  protocol: p,
+  busy,
+  claiming,
+  onClaimAll,
+  renderCard,
+}: Props) {
   const [picked, setPicked] = useState<Filter>("all");
+  const tabRefs = useRef<Partial<Record<Filter, HTMLButtonElement | null>>>({});
   const due = locked.filter((g) => (g.pending ?? 0n) > 0n);
   // A filter that emptied out (e.g. after claiming everything) falls back to the full roster.
   const filter: Filter = (picked === "due" && due.length === 0) || (picked === "idle" && idle.length === 0) ? "all" : picked;
@@ -36,8 +58,9 @@ export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, p
   const total = locked.length + idle.length;
   const done = locked.filter((g) => g.lock && now >= g.lock.end);
   const running = locked.filter((g) => !done.includes(g));
-  // What the idle guardians could earn if every one were locked at its tier's top level.
-  const idleUpside = idle.reduce((sum, g) => sum + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
+  // Biggest earners first: the most valuable lock is the first one seen.
+  const upside = (g: Guardian) => maxTribute(p.tiers?.[g.tier], p.durationDays) ?? -1n;
+  const ranked = [...idle].sort((a, b) => (upside(b) > upside(a) ? 1 : upside(b) < upside(a) ? -1 : 0));
 
   const tabs: { id: Filter; label: string; count: number; hidden?: boolean }[] = [
     { id: "all", label: "All", count: total },
@@ -48,12 +71,33 @@ export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, p
 
   const shown =
     filter === "idle"
-      ? idle
+      ? ranked
       : filter === "locked"
         ? [...done, ...running]
         : filter === "due"
           ? due
-          : [...done, ...idle, ...running];
+          : [...done, ...ranked, ...running];
+
+  const visibleTabs = tabs.filter((t) => !t.hidden);
+  /** Arrow keys move between filters, as in any tab list. */
+  function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
+    const i = visibleTabs.findIndex((t) => t.id === filter);
+    const next =
+      e.key === "ArrowRight"
+        ? (i + 1) % visibleTabs.length
+        : e.key === "ArrowLeft"
+          ? (i - 1 + visibleTabs.length) % visibleTabs.length
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? visibleTabs.length - 1
+              : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    const id = visibleTabs[next].id;
+    setPicked(id);
+    tabRefs.current[id]?.focus();
+  }
 
   return (
     <section className="section roster">
@@ -71,7 +115,8 @@ export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, p
                 {plural(idle.length, "guardian")} {idle.length === 1 ? "is" : "are"} idle.{" "}
                 {idleUpside > 0n && (
                   <b className="roster-upside">
-                    Lock {idle.length === 1 ? "it" : "them"} to earn up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}.
+                    Lock {idle.length === 1 ? "it" : "them"} to earn up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}
+                    {usd !== undefined && <span className="roster-usd"> ({usdOf(idleUpside, p.decimals, usd)})</span>}.
                   </b>
                 )}
               </>
@@ -108,28 +153,39 @@ export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, p
 
       {!isLoading && total > 0 && (
         <div className="roster-bar">
-          <div className="roster-tabs" role="tablist" aria-label="Filter guardians">
-            {tabs
-              .filter((t) => !t.hidden)
-              .map((t) => (
-                <button
-                  key={t.id}
-                  role="tab"
-                  aria-selected={filter === t.id}
-                  className={`roster-tab${t.id === "due" ? " roster-tab-due" : ""}`}
-                  onClick={() => setPicked(t.id)}
-                >
-                  {t.label}
-                  <span className="num">{t.count}</span>
-                </button>
-              ))}
+          <div className="roster-tabs" role="tablist" aria-label="Filter guardians" onKeyDown={onTabKey}>
+            {visibleTabs.map((t) => (
+              <button
+                key={t.id}
+                ref={(el) => {
+                  tabRefs.current[t.id] = el;
+                }}
+                id={`roster-tab-${t.id}`}
+                role="tab"
+                aria-selected={filter === t.id}
+                aria-controls="roster-panel"
+                tabIndex={filter === t.id ? 0 : -1}
+                className={`roster-tab${t.id === "due" ? " roster-tab-due" : ""}`}
+                onClick={() => setPicked(t.id)}
+              >
+                {t.label}
+                <span className="num">{t.count}</span>
+              </button>
+            ))}
           </div>
-          {due.length > 0 && (
-            <button className="gbtn gbtn-gold gbtn-sm" disabled={busy} onClick={(e) => onClaimAll(e.currentTarget)}>
-              {claiming ? <span className="spinner" /> : <ClaimIcon />}
-              {owedDays ? `Claim ${plural(owedDays, "day")}` : "Claim all"} · {fmtToken(totalPending, p.decimals)} {p.symbol}
-            </button>
-          )}
+          <div className="roster-actions">
+            {idleUpside > 0n && (
+              <button className="gbtn gbtn-treasure gbtn-sm" disabled={busy || !canLock} onClick={onLockAll}>
+                <LockIcon /> Lock all
+              </button>
+            )}
+            {due.length > 0 && (
+              <button className="gbtn gbtn-gold gbtn-sm" disabled={busy} onClick={(e) => onClaimAll(e.currentTarget)}>
+                {claiming ? <span className="spinner" /> : <ClaimIcon />}
+                {owedDays ? `Claim ${plural(owedDays, "day")}` : "Claim all"} · {fmtToken(totalPending, p.decimals)} {p.symbol}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -153,7 +209,7 @@ export function Roster({ locked, idle, totalPending, owedDays, now, isLoading, p
           </button>
         </div>
       ) : (
-        <div className="grid" key={filter}>
+        <div className="grid" key={filter} id="roster-panel" role="tabpanel" aria-labelledby={`roster-tab-${filter}`}>
           {shown.map((g, i) => (
             <Fragment key={g.id.toString()}>{renderCard(g, i)}</Fragment>
           ))}

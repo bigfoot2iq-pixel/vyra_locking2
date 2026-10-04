@@ -1,27 +1,30 @@
 "use client";
 
-import { useState, type CSSProperties, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { useAccount } from "wagmi";
 import { useChainNow } from "@/hooks/useChainNow";
 import { noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
-import { topLevel, useProtocol } from "@/hooks/useProtocol";
+import { maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
+import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
 import { addresses, isConfigured } from "@/lib/env";
-import { bpsToPct, fmtToken, plural } from "@/lib/format";
+import { bpsToPct, DAY, fmtClock, fmtToken, plural, usdOf } from "@/lib/format";
 import { TIERS } from "@/lib/tiers";
 import { burstFrom } from "./fx/burst";
 import { CountUp } from "./fx/CountUp";
 import { Embers } from "./fx/Embers";
 import { GuardianCard } from "./GuardianCard";
-import { ClaimIcon } from "./icons";
+import { EarnPreview } from "./EarnPreview";
+import { ClaimIcon, LockIcon } from "./icons";
 import { LevelUpDialog } from "./LevelUpDialog";
+import { LockAllDialog } from "./LockAllDialog";
 import { LockDialog } from "./LockDialog";
 import { Roster } from "./Roster";
 import { tierStyle } from "./TierBadge";
 import { WalletButton } from "./WalletButton";
 
-type Modal = { kind: "lock" | "renew" | "levelup"; guardian: Guardian } | null;
+type Modal = { kind: "lock" | "renew" | "levelup"; guardian: Guardian } | { kind: "lockall" } | null;
 
 const SUPPLY = 1111;
 
@@ -32,11 +35,24 @@ export function Keep() {
   const now = useChainNow();
   const { send, busy } = useTx();
   const [modal, setModal] = useState<Modal>(null);
+  const usd = useTokenUsd(p.token);
+  const fresh = useFresh();
 
   if (!isConfigured) return <NotConfigured />;
 
   const claimable = gs.locked.filter((g) => (g.pending ?? 0n) > 0n);
   const owedDays = claimable.reduce((n, g) => n + (unclaimedDays(g, now) ?? 0), 0);
+  const running = gs.locked.filter((g) => g.lock && now < g.lock.end);
+  // Tribute the wallet's running locks earn per day: the number that grows with every new lock.
+  const dailyEarn = running.reduce((a, g) => a + (g.lock!.amount * BigInt(g.lock!.rateBps)) / 10_000n, 0n);
+  const nextTribute = running.reduce<number | undefined>((soonest, g) => {
+    const t = g.lock!.start + (Math.floor((now - g.lock!.start) / DAY) + 1) * DAY;
+    return soonest === undefined || t < soonest ? t : soonest;
+  }, undefined);
+  const lockable = gs.idle.filter((g) => maxTribute(p.tiers?.[g.tier], p.durationDays) !== undefined);
+  const idleUpside = lockable.reduce((a, g) => a + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
+  const canLock = lockable.length > 0 && !p.paused && p.keepAllowed !== false;
+  const openLockAll = () => setModal({ kind: "lockall" });
 
   const claim = async (ids: bigint[], from?: HTMLElement) => {
     const ok = await send("Tribute claimed", {
@@ -53,7 +69,7 @@ export function Keep() {
   };
 
   // Re-resolve the guardian on every render so dialogs see fresh level/allowance data after a tx.
-  const modalGuardian = modal && gs.guardians.find((g) => g.id === modal.guardian.id);
+  const modalGuardian = modal && "guardian" in modal ? gs.guardians.find((g) => g.id === modal.guardian.id) : undefined;
 
   const cardProps = (g: Guardian, i: number) => ({
     guardian: g,
@@ -61,6 +77,8 @@ export function Keep() {
     now,
     index: i,
     busy: !!busy,
+    usd,
+    fresh: fresh.has(g.id),
     onLock: () => setModal({ kind: "lock", guardian: g }),
     onRenew: () => setModal({ kind: "renew", guardian: g }),
     onLevelUp: () => setModal({ kind: "levelup", guardian: g }),
@@ -79,24 +97,57 @@ export function Keep() {
           </span>
           <h1>Lock your Guardian</h1>
           <p className="lore">
-            Keep the vigil. <b>Claim your tribute.</b>
+            {isConnected && lockable.length > 0 && idleUpside > 0n ? (
+              <>
+                Your {plural(lockable.length, "idle guardian")} could earn{" "}
+                <b>
+                  up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}
+                </b>
+                {usd !== undefined && <span className="hero-usd"> {usdOf(idleUpside, p.decimals, usd)}</span>}.
+              </>
+            ) : (
+              <>
+                Keep the vigil. <b>Claim your tribute.</b>
+              </>
+            )}
           </p>
           <div className="hero-actions">
-            {isConnected ? (
-              <button
-                className="gbtn gbtn-gold gbtn-lg"
-                disabled={claimable.length === 0 || !!busy}
-                onClick={(e) => claim(claimable.map((g) => g.id), e.currentTarget)}
-              >
-                {busy === "Tribute claimed" ? <span className="spinner" /> : <ClaimIcon />}
-                {owedDays ? `Claim ${plural(owedDays, "day")}` : "Claim all"} · {fmtToken(gs.totalPending, p.decimals)} {p.symbol}
-              </button>
-            ) : (
+            {!isConnected ? (
               <WalletButton label="Summon your guardians" />
+            ) : (
+              <>
+                {lockable.length > 0 && (
+                  <button className="gbtn gbtn-treasure gbtn-lg" disabled={!!busy || !canLock} onClick={openLockAll}>
+                    <LockIcon /> Lock {lockable.length === 1 ? "your guardian" : `all ${lockable.length}`}
+                  </button>
+                )}
+                {claimable.length > 0 && (
+                  <button
+                    className="gbtn gbtn-gold gbtn-lg"
+                    disabled={!!busy}
+                    onClick={(e) => claim(claimable.map((g) => g.id), e.currentTarget)}
+                  >
+                    {busy === "Tribute claimed" ? <span className="spinner" /> : <ClaimIcon />}
+                    {owedDays ? `Claim ${plural(owedDays, "day")}` : "Claim all"} · {fmtToken(gs.totalPending, p.decimals)} {p.symbol}
+                  </button>
+                )}
+                {lockable.length === 0 && claimable.length === 0 && nextTribute !== undefined && (
+                  <span className="hero-next num">
+                    <span className="gem-sm gem-pulse" /> Next tribute in {fmtClock(nextTribute - now)}
+                  </span>
+                )}
+                {!gs.isLoading && gs.guardians.length === 0 && (
+                  <a className="btn btn-primary" href="https://opensea.io/collection/vyranfts/overview" target="_blank" rel="noreferrer">
+                    Find a guardian ↗
+                  </a>
+                )}
+              </>
             )}
-            <a className="btn btn-ghost" href="#rite">
-              How it works
-            </a>
+            {(!isConnected || lockable.length === 0 || claimable.length === 0) && (
+              <a className="btn btn-ghost" href="#rite">
+                How it works
+              </a>
+            )}
           </div>
         </div>
       </section>
@@ -127,11 +178,18 @@ export function Keep() {
           </div>
         </div>
         <div className="stat stat-gold">
-          <div className="stat-label">Your tribute due</div>
+          <div className="stat-label">You earn per day</div>
           <div className="stat-value num">
-            {isConnected ? <CountUp value={gs.totalPending} decimals={p.decimals} maxFrac={4} /> : "—"}
+            {isConnected ? (
+              <>
+                +<CountUp value={dailyEarn} decimals={p.decimals} maxFrac={2} />
+              </>
+            ) : (
+              "—"
+            )}
             <small>{p.symbol}</small>
           </div>
+          {isConnected && <div className="stat-sub">{plural(running.length, "guardian")} earning</div>}
         </div>
       </div>
 
@@ -155,11 +213,7 @@ export function Keep() {
 
       {!isConnected ? (
         <section className="section">
-          <div className="empty plate">
-            <span className="kicker">◆ Guardians await</span>
-            <p className="lore">Connect your wallet to see your guardians in the Keep.</p>
-            <WalletButton />
-          </div>
+          <EarnPreview protocol={p} usd={usd} />
         </section>
       ) : (
         <Roster
@@ -168,6 +222,10 @@ export function Keep() {
           totalPending={gs.totalPending}
           owedDays={owedDays}
           now={now}
+          usd={usd}
+          idleUpside={idleUpside}
+          canLock={canLock}
+          onLockAll={openLockAll}
           isLoading={gs.isLoading}
           protocol={p}
           busy={!!busy}
@@ -254,14 +312,45 @@ export function Keep() {
         </p>
       </section>
 
-      {modal && modalGuardian && modal.kind !== "levelup" && (
-        <LockDialog guardian={modalGuardian} protocol={p} mode={modal.kind} onClose={() => setModal(null)} />
+      {modal && modalGuardian && (modal.kind === "lock" || modal.kind === "renew") && (
+        <LockDialog guardian={modalGuardian} protocol={p} mode={modal.kind} onClose={() => setModal(null)} onLocked={fresh.mark} />
+      )}
+      {modal?.kind === "lockall" && (
+        <LockAllDialog guardians={lockable} protocol={p} onClose={() => setModal(null)} onLocked={fresh.mark} />
+      )}
+
+      {isConnected && !modal && (lockable.length > 0 || claimable.length > 0) && (
+        <div className="action-dock" role="region" aria-label="Quick actions">
+          {lockable.length > 0 && (
+            <button className="gbtn gbtn-treasure" disabled={!!busy || !canLock} onClick={openLockAll}>
+              <LockIcon /> Lock {lockable.length === 1 ? "1" : `all ${lockable.length}`}
+            </button>
+          )}
+          {claimable.length > 0 && (
+            <button className="gbtn gbtn-gold" disabled={!!busy} onClick={(e) => claim(claimable.map((g) => g.id), e.currentTarget)}>
+              {busy === "Tribute claimed" ? <span className="spinner" /> : <ClaimIcon />}
+              Claim {fmtToken(gs.totalPending, p.decimals)}
+            </button>
+          )}
+        </div>
       )}
       {modal?.kind === "levelup" && modalGuardian?.lock && (
         <LevelUpDialog guardian={modalGuardian} protocol={p} now={now} onClose={() => setModal(null)} />
       )}
     </>
   );
+}
+
+/** Guardians locked in the last few seconds, so their cards can play the seal stamp once they show as locked. */
+function useFresh() {
+  const [ids, setIds] = useState<ReadonlySet<bigint>>(new Set());
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const mark = useCallback((locked: bigint[]) => {
+    setIds((s) => new Set([...s, ...locked]));
+    timers.current.push(setTimeout(() => setIds((s) => new Set([...s].filter((id) => !locked.includes(id)))), 15_000));
+  }, []);
+  return { has: (id: bigint) => ids.has(id), mark };
 }
 
 function NotConfigured() {

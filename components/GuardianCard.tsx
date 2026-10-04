@@ -3,7 +3,7 @@
 import type { CSSProperties, PointerEvent } from "react";
 import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
 import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
-import { bpsToPct, DAY, fmtDuration, fmtToken, plural } from "@/lib/format";
+import { bpsToPct, DAY, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
 import { GuardianArt } from "./GuardianArt";
 import { ClaimIcon, LevelUpIcon, LockIcon, RenewIcon, UnlockIcon } from "./icons";
@@ -17,6 +17,10 @@ interface Props {
   now: number;
   index: number;
   busy: boolean;
+  /** USD per whole token, when known. */
+  usd?: number;
+  /** Just locked: play the seal stamp once the card shows as locked. */
+  fresh?: boolean;
   onLock: () => void;
   onRenew: () => void;
   onLevelUp: () => void;
@@ -24,7 +28,7 @@ interface Props {
   onUnlock: () => void;
 }
 
-export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLock, onRenew, onLevelUp, onClaim, onUnlock }: Props) {
+export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, fresh, onLock, onRenew, onLevelUp, onClaim, onUnlock }: Props) {
   const l = g.lock;
   const cfg = p.tiers?.[g.tier];
   const top = topLevel(cfg);
@@ -38,7 +42,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
 
   return (
     <article
-      className={`card plate tier-${g.tier} ${!l ? "card-idle" : ended ? "card-done" : "card-locked"}`}
+      className={`card plate tier-${g.tier} ${!l ? "card-idle" : ended ? "card-done" : "card-locked"}${fresh ? " card-fresh" : ""}`}
       style={{ ...tierStyle(g.tier), "--plate-edge": tierOf(g.tier).color, "--i": index } as CSSProperties}
       onPointerMove={sheen}
     >
@@ -140,6 +144,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
                   {fmtToken(earnUpTo, p.decimals, 0)} <small>{p.symbol}</small>
                 </span>
                 <span className="card-pitch-sub">
+                  {usd !== undefined && <b className="card-pitch-usd">{usdOf(earnUpTo, p.decimals, usd)} · </b>}
                   {bpsToPct(cfg!.dailyRateBps)} a day for {p.durationDays} days
                 </span>
               </div>
@@ -151,7 +156,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, onLoc
               </span>
             </div>
             <div className="card-actions">
-              <button className="gbtn gbtn-lock" disabled={busy || p.paused || tierClosed} onClick={onLock}>
+              <button className="gbtn gbtn-treasure" disabled={busy || p.paused || tierClosed} onClick={onLock}>
                 <LockIcon /> Lock &amp; earn
               </button>
             </div>

@@ -16,21 +16,24 @@ import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 ///      - When a lock opens, its full-period reward is reserved. A lock cannot open unless the
 ///        free balance covers it, and the owner can only withdraw what is NOT reserved. So even
 ///        a compromised owner key cannot take rewards already promised to holders.
-///      - The locking contract and the token are wired once and can never be changed.
+///      - The locking contract is wired once and can never be changed.
+///      - The payment token can be switched on the locking contract. Every lock remembers the token
+///        it was paid in, and the pool keeps reserves and stats per token, so a switch never
+///        touches what was promised in the old token: those locks are paid out in it to the end.
 contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant BPS = 10_000;
 
     IVyraLocking public locking;
-    /// @notice Rewards promised to open locks and not yet paid out.
-    uint256 public totalReserved;
-    /// @notice Every reward ever paid to holders.
-    uint256 public totalPaidOut;
-    /// @notice Tokens added through `deposit` (owner seed, donations).
-    uint256 public totalDeposited;
-    /// @notice Tokens taken out by the owner.
-    uint256 public totalWithdrawn;
+    /// @notice Rewards promised to open locks and not yet paid out, per token.
+    mapping(IERC20 token => uint256) public reservedOf;
+    /// @notice Every reward ever paid to holders, per token.
+    mapping(IERC20 token => uint256) public paidOutOf;
+    /// @notice Tokens added through `deposit` (owner seed, donations), per token.
+    mapping(IERC20 token => uint256) public depositedOf;
+    /// @notice Tokens taken out by the owner, per token.
+    mapping(IERC20 token => uint256) public withdrawnOf;
     /// @notice Days already paid out, per lock id.
     mapping(uint64 lockId => uint16) public claimedDays;
 
@@ -41,7 +44,7 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         address indexed owner, uint256 indexed tokenId, uint64 indexed lockId, uint16 daysPaid, uint256 amount
     );
     event Released(uint256 indexed tokenId, uint64 indexed lockId, uint256 amount);
-    event SurplusWithdrawn(address indexed to, uint256 amount);
+    event SurplusWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error LockingAlreadySet();
     error NotLocking();
@@ -49,7 +52,6 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     error NotLockOwner(uint256 tokenId);
     error InsufficientPool(uint256 needed, uint256 available);
     error ExceedsSurplus(uint256 requested, uint256 available);
-    error CannotRescuePoolToken();
     error ZeroAddress();
     error ZeroAmount();
     error RenounceDisabled();
@@ -75,10 +77,37 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         return token().balanceOf(address(this));
     }
 
-    /// @notice Tokens not promised to anyone: what new locks draw on and what the owner may withdraw.
+    /// @notice Tokens not promised to anyone, in the current token: what new locks draw on and what
+    ///         the owner may withdraw.
     function available() public view returns (uint256) {
-        uint256 bal = balance();
-        return bal > totalReserved ? bal - totalReserved : 0;
+        return availableOf(token());
+    }
+
+    /// @notice Unreserved balance of any token (an old payment token, or one sent by mistake).
+    function availableOf(IERC20 t) public view returns (uint256) {
+        uint256 bal = t.balanceOf(address(this));
+        uint256 r = reservedOf[t];
+        return bal > r ? bal - r : 0;
+    }
+
+    /// @notice Rewards promised in the current token (zero until it is set).
+    function totalReserved() external view returns (uint256) {
+        return reservedOf[_current()];
+    }
+
+    /// @notice Rewards paid in the current token.
+    function totalPaidOut() external view returns (uint256) {
+        return paidOutOf[_current()];
+    }
+
+    /// @notice Deposits in the current token.
+    function totalDeposited() external view returns (uint256) {
+        return depositedOf[_current()];
+    }
+
+    /// @notice Owner withdrawals in the current token.
+    function totalWithdrawn() external view returns (uint256) {
+        return withdrawnOf[_current()];
     }
 
     function rewardPerDay(IVyraLocking.Lock memory l) public pure returns (uint256) {
@@ -116,22 +145,32 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // Holder & public actions
     // ------------------------------------------------------------------
 
-    /// @notice Claim every accrued reward for the given locked guardians.
+    /// @notice Claim every accrued reward for the given locked guardians. Each lock pays in the
+    ///         token it was paid in, so after a switch `total` adds up amounts of different tokens.
     /// @dev Intentionally not pausable: holders can always collect what they've earned.
     function claim(uint256[] calldata tokenIds) external nonReentrant returns (uint256 total) {
+        IERC20 t;
+        uint256 owed;
         for (uint256 i; i < tokenIds.length; ++i) {
             IVyraLocking.Lock memory l = locking.lockOf(tokenIds[i]);
             if (l.owner != msg.sender) revert NotLockOwner(tokenIds[i]);
-            total += _accrue(tokenIds[i], l);
+            if (l.token != t) {
+                if (owed > 0) t.safeTransfer(msg.sender, owed);
+                (t, owed) = (l.token, 0);
+            }
+            uint256 amount = _accrue(tokenIds[i], l);
+            owed += amount;
+            total += amount;
         }
-        if (total > 0) token().safeTransfer(msg.sender, total);
+        if (owed > 0) t.safeTransfer(msg.sender, owed);
     }
 
     /// @notice Anyone may add tokens to the pool (the owner's seed, donations, buybacks).
     function deposit(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
-        token().safeTransferFrom(msg.sender, address(this), amount);
-        totalDeposited += amount;
+        IERC20 t = token();
+        t.safeTransferFrom(msg.sender, address(this), amount);
+        depositedOf[t] += amount;
         emit Deposited(msg.sender, amount);
     }
 
@@ -143,9 +182,9 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function reserve(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint256 needed = maxReward(l);
-        uint256 free = available();
+        uint256 free = availableOf(l.token);
         if (needed > free) revert InsufficientPool(needed, free);
-        totalReserved += needed;
+        reservedOf[l.token] += needed;
         emit Reserved(tokenId, l.lockId, needed);
     }
 
@@ -154,7 +193,7 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function release(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint256 remaining = rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]);
-        totalReserved -= remaining;
+        reservedOf[l.token] -= remaining;
         emit Released(tokenId, l.lockId, remaining);
     }
 
@@ -162,9 +201,9 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function reserveRemaining(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint256 needed = rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]);
-        uint256 free = available();
+        uint256 free = availableOf(l.token);
         if (needed > free) revert InsufficientPool(needed, free);
-        totalReserved += needed;
+        reservedOf[l.token] += needed;
         emit Reserved(tokenId, l.lockId, needed);
     }
 
@@ -172,7 +211,7 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function settle(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 amount) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         amount = _accrue(tokenId, l);
-        if (amount > 0) token().safeTransfer(l.owner, amount);
+        if (amount > 0) l.token.safeTransfer(l.owner, amount);
     }
 
     /// @notice Pay out the whole period's remaining reward, days not yet elapsed included, before
@@ -181,7 +220,7 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function settleFull(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 amount) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         amount = _accrueTo(tokenId, l, l.durationDays);
-        if (amount > 0) token().safeTransfer(l.owner, amount);
+        if (amount > 0) l.token.safeTransfer(l.owner, amount);
     }
 
     // ------------------------------------------------------------------
@@ -196,21 +235,15 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         emit LockingSet(locking_);
     }
 
-    /// @notice Withdraw pool tokens that are not reserved for any open lock.
+    /// @notice Withdraw current-token pool tokens that are not reserved for any open lock.
     function withdrawSurplus(address to, uint256 amount) external onlyOwner nonReentrant {
-        if (to == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-        uint256 free = available();
-        if (amount > free) revert ExceedsSurplus(amount, free);
-        totalWithdrawn += amount;
-        token().safeTransfer(to, amount);
-        emit SurplusWithdrawn(to, amount);
+        _withdraw(token(), to, amount);
     }
 
-    /// @notice Recover unrelated tokens sent here by mistake. The pool token can never be rescued.
-    function rescueERC20(IERC20 other, address to, uint256 amount) external onlyOwner {
-        if (address(other) == address(token())) revert CannotRescuePoolToken();
-        other.safeTransfer(to, amount);
+    /// @notice Withdraw the unreserved balance of any token: what is left of an old payment token
+    ///         after a switch, or tokens sent here by mistake. Reserved rewards can never leave.
+    function withdrawSurplusOf(IERC20 t, address to, uint256 amount) external onlyOwner nonReentrant {
+        _withdraw(t, to, amount);
     }
 
     /// @dev Disabled: an ownerless pool could never release its surplus.
@@ -222,6 +255,20 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // Internal
     // ------------------------------------------------------------------
 
+    function _current() internal view returns (IERC20) {
+        return address(locking) == address(0) ? IERC20(address(0)) : locking.token();
+    }
+
+    function _withdraw(IERC20 t, address to, uint256 amount) internal {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        uint256 free = availableOf(t);
+        if (amount > free) revert ExceedsSurplus(amount, free);
+        withdrawnOf[t] += amount;
+        t.safeTransfer(to, amount);
+        emit SurplusWithdrawn(address(t), to, amount);
+    }
+
     function _accrue(uint256 tokenId, IVyraLocking.Lock memory l) internal returns (uint256 amount) {
         return _accrueTo(tokenId, l, daysElapsed(l));
     }
@@ -232,8 +279,8 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         if (due <= done) return 0;
         amount = rewardPerDay(l) * (due - done);
         claimedDays[l.lockId] = due;
-        totalReserved -= amount;
-        totalPaidOut += amount;
+        reservedOf[l.token] -= amount;
+        paidOutOf[l.token] += amount;
         emit Claimed(l.owner, tokenId, l.lockId, due - done, amount);
     }
 }

@@ -70,7 +70,7 @@ export function Council() {
         </div>
       </div>
       <div className="admin-grid">
-        {!p.token && <TokenCard p={p} />}
+        <TokenCard p={p} />
         {p.token && <PoolCard p={p} />}
         {p.token && <TiersCard p={p} />}
         <RarityCard p={p} />
@@ -582,21 +582,77 @@ function EmergencyCard({ p }: { p: Protocol }) {
 
 function TokenCard({ p }: { p: Protocol }) {
   const { run, busy } = useOwnerAction(p.owner);
+  const poolOwner = useOwnerAction(p.poolOwner);
   const [addr, setAddr] = useState("");
+  const [old, setOld] = useState("");
+  const oldAddr = isAddress(old) && !same(old, p.token) ? (old as Address) : undefined;
+  const { data: oldFree } = useReadContract({
+    address: addresses.pool,
+    abi: vyraRewardPoolAbi,
+    functionName: "availableOf",
+    args: oldAddr ? [oldAddr] : undefined,
+    query: { enabled: !!oldAddr && !!addresses.pool },
+  });
+  const { data: oldDecimals } = useReadContract({
+    address: oldAddr,
+    abi: erc20Abi,
+    functionName: "decimals",
+    query: { enabled: !!oldAddr },
+  });
+  const { data: oldSymbol } = useReadContract({ address: oldAddr, abi: erc20Abi, functionName: "symbol", query: { enabled: !!oldAddr } });
+
   return (
     <div className="admin-card plate wide">
       <h3>Token</h3>
-      <p>The token used for locks, level-ups and rewards. It can be set only once, so check the address twice.</p>
+      <p>
+        The token new locks, renewals and level-ups are paid in, and new rewards are paid in.{" "}
+        {p.token ? (
+          <>
+            Now <b>{p.symbol}</b> <span className="faint">{shortAddr(p.token)}</span>. Switching applies to everything new; locks
+            already running finish in the token they were paid in and earn in it until they end. The pool needs a seed in the new
+            token for tiers that pay more than 100% per period.
+          </>
+        ) : (
+          "Not set yet. It can be switched later."
+        )}
+      </p>
       <div className="admin-actions">
-        <input className="input" style={{ flex: 1, minWidth: 260 }} placeholder="0x…" value={addr} onChange={(e) => setAddr(e.target.value.trim())} />
+        <input className="input" style={{ flex: 1, minWidth: 260 }} placeholder="0x… new token" value={addr} onChange={(e) => setAddr(e.target.value.trim())} />
         <button
           className="btn btn-primary"
-          disabled={!isAddress(addr) || !!busy}
-          onClick={() => confirm(`Set ${addr} as the token forever?`) && run("Token set", addresses.locking!, vyraLockingAbi, "setToken", [addr])}
+          disabled={!isAddress(addr) || same(addr, p.token) || !!busy}
+          onClick={() =>
+            confirm(p.token ? `Switch the payment token from ${p.token} to ${addr}?` : `Set ${addr} as the token?`) &&
+            run(p.token ? "Token switched" : "Token set", addresses.locking!, vyraLockingAbi, "setToken", [addr])
+          }
         >
-          Set token
+          {p.token ? "Switch token" : "Set token"}
         </button>
       </div>
+
+      {p.token && (
+        <>
+          <p style={{ marginTop: 16 }}>
+            After a switch, the old token&apos;s free surplus stays in the pool. Recover it here; rewards still owed to running locks
+            in that token stay reserved.
+          </p>
+          <div className="admin-actions">
+            <input className="input" style={{ flex: 1, minWidth: 260 }} placeholder="0x… old token" value={old} onChange={(e) => setOld(e.target.value.trim())} />
+            <span className="faint num">
+              {oldFree !== undefined && oldDecimals !== undefined ? `${fmtToken(oldFree, oldDecimals, 2)} ${oldSymbol ?? ""} free` : ""}
+            </span>
+            <button
+              className="btn btn-sm"
+              disabled={!oldAddr || !oldFree || !p.poolOwner || !!poolOwner.busy}
+              onClick={() =>
+                poolOwner.run("Old surplus withdrawn", addresses.pool!, vyraRewardPoolAbi, "withdrawSurplusOf", [oldAddr, p.poolOwner, oldFree])
+              }
+            >
+              Withdraw to owner
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

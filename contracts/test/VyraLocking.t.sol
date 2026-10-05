@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {VyraLocking} from "../src/VyraLocking.sol";
 import {VyraRewardPool} from "../src/VyraRewardPool.sol";
 import {IVyraLocking} from "../src/interfaces/IVyraLocking.sol";
@@ -391,10 +392,13 @@ contract VyraLockingTest is Base {
         vm.stopPrank();
     }
 
-    function test_pool_cannotRescuePoolToken() public {
+    function test_pool_cannotWithdrawReservedRewards() public {
+        lockAs(alice, COMMON_ID, 4e18); // reserves 1.4
+        uint256 free = pool.availableOf(token);
+        assertEq(free, SEED + 4e18 - 1.4e18);
         vm.prank(owner);
-        vm.expectRevert(VyraRewardPool.CannotRescuePoolToken.selector);
-        pool.rescueERC20(token, owner, 1);
+        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.ExceedsSurplus.selector, free + 1, free));
+        pool.withdrawSurplusOf(token, owner, free + 1);
     }
 
     function test_renounceDisabled() public {
@@ -447,10 +451,13 @@ contract VyraLockingTest is Base {
         vm.stopPrank();
     }
 
-    function test_tokenIsSetOnce() public {
-        vm.prank(owner);
-        vm.expectRevert(VyraLocking.TokenAlreadySet.selector);
+    function test_setTokenRejectsSameOrZero() public {
+        vm.startPrank(owner);
+        vm.expectRevert(VyraLocking.SameToken.selector);
         locking.setToken(token);
+        vm.expectRevert(VyraLocking.ZeroAddress.selector);
+        locking.setToken(IERC20(address(0)));
+        vm.stopPrank();
     }
 
     function test_rescueCannotTakeLockedNft() public {

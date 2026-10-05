@@ -229,6 +229,25 @@ export const vyraLockingAbi = [
   },
   {
     "type": "function",
+    "name": "levelPaymentsOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "levelPrice",
     "inputs": [
       {
@@ -352,8 +371,32 @@ export const vyraLockingAbi = [
             "name": "amount",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lockPaymentsOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -439,6 +482,11 @@ export const vyraLockingAbi = [
             "name": "amount",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
           }
         ]
       }
@@ -1237,6 +1285,12 @@ export const vyraLockingAbi = [
     "name": "TokenSet",
     "inputs": [
       {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "token",
         "type": "address",
         "indexed": true,
@@ -1497,6 +1551,17 @@ export const vyraLockingAbi = [
   },
   {
     "type": "error",
+    "name": "LockTokenChanged",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NotLocked",
     "inputs": [
       {
@@ -1567,7 +1632,7 @@ export const vyraLockingAbi = [
   },
   {
     "type": "error",
-    "name": "TokenAlreadySet",
+    "name": "SameToken",
     "inputs": []
   },
   {
@@ -1616,6 +1681,25 @@ export const vyraRewardPoolAbi = [
     "type": "function",
     "name": "available",
     "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "availableOf",
+    "inputs": [
+      {
+        "name": "t",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -1724,6 +1808,11 @@ export const vyraRewardPoolAbi = [
             "name": "amount",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
           }
         ]
       }
@@ -1749,6 +1838,25 @@ export const vyraRewardPoolAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "depositedOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1811,6 +1919,11 @@ export const vyraRewardPoolAbi = [
             "name": "amount",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
           }
         ]
       }
@@ -1833,6 +1946,25 @@ export const vyraRewardPoolAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "paidOutOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1915,29 +2047,6 @@ export const vyraRewardPoolAbi = [
   },
   {
     "type": "function",
-    "name": "rescueERC20",
-    "inputs": [
-      {
-        "name": "other",
-        "type": "address",
-        "internalType": "contract IERC20"
-      },
-      {
-        "name": "to",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "reserve",
     "inputs": [
       {
@@ -1961,6 +2070,25 @@ export const vyraRewardPoolAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "reservedOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2010,6 +2138,11 @@ export const vyraRewardPoolAbi = [
             "name": "amount",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
           }
         ]
       }
@@ -2169,6 +2302,48 @@ export const vyraRewardPoolAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawSurplusOf",
+    "inputs": [
+      {
+        "name": "t",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawnOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -2332,6 +2507,12 @@ export const vyraRewardPoolAbi = [
     "name": "SurplusWithdrawn",
     "inputs": [
       {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "to",
         "type": "address",
         "indexed": true,
@@ -2345,11 +2526,6 @@ export const vyraRewardPoolAbi = [
       }
     ],
     "anonymous": false
-  },
-  {
-    "type": "error",
-    "name": "CannotRescuePoolToken",
-    "inputs": []
   },
   {
     "type": "error",

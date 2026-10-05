@@ -15,6 +15,7 @@ interface IVyraLocking {
         uint40 start;
         uint64 lockId; // unique per lock/renew; keys the pool's claim ledger
         uint128 amount; // tokens paid into the pool for this period
+        IERC20 token; // token this period was paid in; its rewards are paid in the same token
     }
 
     function token() external view returns (IERC20);

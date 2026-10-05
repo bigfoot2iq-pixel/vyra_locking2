@@ -28,6 +28,9 @@ interface IRewardPool {
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
 ///      the fee difference plus a top-up, and the remaining days earn on the bigger amount.
 ///      Everything goes to the pool. Nothing is burned and this contract never keeps tokens.
+///      The owner can switch the payment token at any time. New locks, renewals and level-ups use
+///      the new token; a running lock keeps the token it was paid in, and its rewards come in that
+///      token. A lock paid in an old token can't level up; it renews into the new one.
 ///      Emergency gate: the owner can hand any locked guardian back to its holder early, with the
 ///      full period's reward paid out (see {emergencyReturn}).
 contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
@@ -71,10 +74,10 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     uint64 public nextLockId = 1;
     uint256 public totalLocked;
-    /// @notice All tokens paid into the pool by lock payments.
-    uint256 public totalLockPayments;
-    /// @notice All tokens paid into the pool as level fees.
-    uint256 public totalLevelPayments;
+    /// @notice Tokens paid into the pool by lock payments, per payment token.
+    mapping(IERC20 token => uint256) public lockPaymentsOf;
+    /// @notice Tokens paid into the pool as level fees, per payment token.
+    mapping(IERC20 token => uint256) public levelPaymentsOf;
 
     event Locked(
         address indexed owner,
@@ -102,14 +105,15 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         address indexed owner, uint256 indexed tokenId, uint8 fromLevel, uint8 toLevel, uint256 newAmount, uint256 paid
     );
 
-    event TokenSet(address indexed token);
+    event TokenSet(address indexed previous, address indexed token);
     event DurationSet(uint16 durationDays);
     event TierConfigSet(uint8 indexed tier, uint16 dailyRateBps);
     event RarityWordsSet(uint256 startWord, uint256 count);
     event RarityLocked();
 
-    error TokenAlreadySet();
     error TokenNotSet();
+    error SameToken();
+    error LockTokenChanged(uint256 tokenId);
     error ZeroAddress();
     error LengthMismatch();
     error EmptyInput();
@@ -196,6 +200,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         if (l.owner == address(0)) revert NotLocked(tokenId);
         if (l.owner != msg.sender) revert NotTokenOwner(tokenId);
         if (block.timestamp >= endOf(tokenId)) revert LockEnded(tokenId);
+        // the lock's reserve and payouts live in its own token; a switched token renews instead
+        if (l.token != token) revert LockTokenChanged(tokenId);
         if (newLevel >= LEVEL_COUNT || newLevel <= l.level) revert InvalidLevel(newLevel);
 
         uint8 tier = l.tier;
@@ -304,6 +310,16 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         return uint8((word >> ((tokenId % TIERS_PER_WORD) * 4)) & 0xF);
     }
 
+    /// @notice Lock payments made in the current token.
+    function totalLockPayments() external view returns (uint256) {
+        return lockPaymentsOf[token];
+    }
+
+    /// @notice Level fees paid in the current token.
+    function totalLevelPayments() external view returns (uint256) {
+        return levelPaymentsOf[token];
+    }
+
     /// @notice Fee to lock a token of `tier` at `level` (0-based). Level 1 is always free.
     function levelPrice(uint8 tier, uint8 level) public view returns (uint256) {
         if (tier >= TIER_COUNT) revert InvalidTier(tier);
@@ -315,12 +331,13 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     // Admin
     // ------------------------------------------------------------------
 
-    /// @notice One-time: the lock/reward token. Fixed afterwards so pool accounting stays sound.
+    /// @notice The token new locks, renewals and level-ups are paid in. Can be switched at any time:
+    ///         running locks keep their own token (and its reserve in the pool) until they end.
     function setToken(IERC20 token_) external onlyOwner {
-        if (address(token) != address(0)) revert TokenAlreadySet();
         if (address(token_) == address(0)) revert ZeroAddress();
+        if (token_ == token) revert SameToken();
+        emit TokenSet(address(token), address(token_));
         token = token_;
-        emit TokenSet(address(token_));
     }
 
     /// @notice Period length for new locks and renewals. Running locks keep their snapshot.
@@ -477,7 +494,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             start: uint40(block.timestamp),
             lockId: lockId,
             // forge-lint: disable-next-line(unsafe-typecast) amount <= lv.maxAmount (uint128)
-            amount: uint128(amount)
+            amount: uint128(amount),
+            token: token
         });
         uint40 end = uint40(block.timestamp) + uint40(d) * 1 days;
         IRewardPool(pool).reserve(id);
@@ -488,11 +506,11 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     /// @dev Moves lock amounts + level fees from the caller straight into the pool.
     ///      Rejects fee-on-transfer tokens.
     function _collect(uint256 total, uint256 fees) internal {
-        totalLockPayments += total;
-        totalLevelPayments += fees;
+        IERC20 t = token;
+        lockPaymentsOf[t] += total;
+        levelPaymentsOf[t] += fees;
         uint256 amount = total + fees;
         if (amount == 0) return;
-        IERC20 t = token;
         uint256 before = t.balanceOf(pool);
         t.safeTransferFrom(msg.sender, pool, amount);
         if (t.balanceOf(pool) - before != amount) revert FeeOnTransferToken();

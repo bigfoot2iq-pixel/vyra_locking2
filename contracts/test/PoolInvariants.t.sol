@@ -15,6 +15,8 @@ contract Handler is Test {
     VyraRewardPool pool;
     MockVyraNFT nft;
     MockToken token;
+    /// the token the owner can switch to and back, as after a sniped launch
+    MockToken public other;
     address owner;
     address[3] actors;
     /// ghost counters: successful calls, to prove the fuzzer exercises real paths
@@ -25,17 +27,29 @@ contract Handler is Test {
     uint256 public paidLevels;
     uint256 public levelUps;
     uint256 public emergencyReturns;
+    uint256 public switches;
 
     constructor(VyraLocking l, VyraRewardPool p, MockVyraNFT n, MockToken t, address o, address alice) {
         (locking, pool, nft, token, owner) = (l, p, n, t, o);
+        other = new MockToken();
         token.faucet(alice, 1_000_000e18);
+        other.faucet(alice, 1_000_000e18);
+        vm.prank(alice);
+        other.approve(address(locking), type(uint256).max);
+        // seed the second token too, so high-rate tiers can lock in it
+        other.faucet(owner, 100e18);
+        vm.startPrank(owner);
+        other.approve(address(pool), 100e18);
+        vm.stopPrank();
         for (uint256 i; i < 3; ++i) {
             actors[i] = address(uint160(0xA11CE + i));
             nft.mint(actors[i], 6);
             token.faucet(actors[i], 1_000_000e18);
+            other.faucet(actors[i], 1_000_000e18);
             vm.startPrank(actors[i]);
             nft.setApprovalForAll(address(locking), true);
             token.approve(address(locking), type(uint256).max);
+            other.approve(address(locking), type(uint256).max);
             vm.stopPrank();
         }
     }
@@ -144,11 +158,22 @@ contract Handler is Test {
         ++emergencyReturns;
     }
 
-    function ownerWithdraw(uint256 amount) external {
-        uint256 free = pool.available();
+    function ownerWithdraw(uint256 amount, bool fromOther) external {
+        MockToken t = fromOther ? other : token;
+        uint256 free = pool.availableOf(t);
         if (free == 0) return;
         vm.prank(owner);
-        pool.withdrawSurplus(owner, bound(amount, 1, free));
+        pool.withdrawSurplusOf(t, owner, bound(amount, 1, free));
+    }
+
+    /// The owner flips the payment token; the first switch to `other` also seeds it.
+    function switchToken() external {
+        bool toOther = address(locking.token()) == address(token);
+        vm.startPrank(owner);
+        locking.setToken(toOther ? other : token);
+        if (toOther && pool.depositedOf(other) == 0) pool.deposit(100e18);
+        vm.stopPrank();
+        ++switches;
     }
 
     function warp(uint256 secs) external {
@@ -171,17 +196,43 @@ contract PoolInvariants is Base {
         assertGt(handler.paidLevels(), 0);
         assertGt(handler.levelUps(), 0);
         assertGt(handler.emergencyReturns(), 0);
-
+        assertGt(handler.switches(), 0);
     }
 
-    /// The pool always holds at least everything it has promised.
+    function _tokens() internal view returns (MockToken[2] memory) {
+        return [token, handler.other()];
+    }
+
+    /// The pool always holds at least everything it has promised, in every token.
     function invariant_poolCoversReserved() public view {
-        assertGe(token.balanceOf(address(pool)), pool.totalReserved());
+        MockToken[2] memory ts = _tokens();
+        for (uint256 i; i < 2; ++i) {
+            assertGe(ts[i].balanceOf(address(pool)), pool.reservedOf(ts[i]));
+        }
     }
 
     /// The locking contract never keeps tokens.
     function invariant_lockingHoldsNoTokens() public view {
-        assertEq(token.balanceOf(address(locking)), 0);
+        MockToken[2] memory ts = _tokens();
+        for (uint256 i; i < 2; ++i) {
+            assertEq(ts[i].balanceOf(address(locking)), 0);
+        }
+    }
+
+    /// Each token's reserve equals the unpaid rewards of the open locks paid in it.
+    function invariant_reservesMatchLocks() public view {
+        MockToken[2] memory ts = _tokens();
+        uint256 n = locking.allLockedCount();
+        uint256[] memory all = locking.allLockedTokens(0, n);
+        uint256[2] memory owed;
+        for (uint256 i; i < n; ++i) {
+            VyraLocking.Lock memory l = locking.lockOf(all[i]);
+            uint256 left = pool.rewardPerDay(l) * (l.durationDays - pool.claimedDays(l.lockId));
+            owed[address(l.token) == address(ts[0]) ? 0 : 1] += left;
+        }
+        for (uint256 i; i < 2; ++i) {
+            assertEq(pool.reservedOf(ts[i]), owed[i]);
+        }
     }
 
     /// The global locked set matches the counter and every entry is a live lock held here.
@@ -195,10 +246,14 @@ contract PoolInvariants is Base {
         }
     }
 
-    /// Money in = money out + money held.
+    /// Money in = money out + money held, per token.
     function invariant_poolAccounting() public view {
-        uint256 inflow = pool.totalDeposited() + locking.totalLockPayments() + locking.totalLevelPayments();
-        uint256 outflow = pool.totalPaidOut() + pool.totalWithdrawn();
-        assertEq(token.balanceOf(address(pool)), inflow - outflow);
+        MockToken[2] memory ts = _tokens();
+        for (uint256 i; i < 2; ++i) {
+            MockToken t = ts[i];
+            uint256 inflow = pool.depositedOf(t) + locking.lockPaymentsOf(t) + locking.levelPaymentsOf(t);
+            uint256 outflow = pool.paidOutOf(t) + pool.withdrawnOf(t);
+            assertEq(t.balanceOf(address(pool)), inflow - outflow);
+        }
     }
 }

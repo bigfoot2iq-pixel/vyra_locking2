@@ -20,6 +20,8 @@ const FRIENDLY: Record<string, string> = {
   AmountBelowLocked: "The new total can't be less than what's already locked.",
   EnforcedPause: "The Keep is paused. New locks and level-ups are on hold; claims and unlocking still work.",
   TokenNotSet: "The token hasn't been set yet.",
+  LockTokenChanged: "This lock was paid in the Keep's previous token. Renew it when it ends to move to the new one.",
+  SameToken: "That's already the Keep's token.",
   ExceedsSurplus: "That would touch rewards reserved for holders.",
   RarityIsLocked: "Rarity is locked forever.",
   InvalidTierConfig: "Level settings must climb: level 1 free, caps and fees never going down, no gaps.",

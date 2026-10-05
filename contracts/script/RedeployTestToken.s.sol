@@ -14,6 +14,7 @@ import {VyraTestToken} from "../src/test-token/VyraTestToken.sol";
 ///   TOKEN_ADDRESS optional existing ERC-20 to use (18 decimals, no transfer fees); the deployer
 ///                 must hold the seed. Unset: deploys tVYRA with 1B to the deployer.
 ///   SEED          optional pool seed in whole tokens (default 100000)
+///   DURATION_DAYS optional lock period (default: the contract's 7 days)
 /// Deploys pool and locking (and tVYRA if needed), wires them, uploads the rarity map,
 /// checks it word by word against data/vyra-rarity.json, freezes it, sets the token and the
 /// tier table, and seeds the pool. The collection owner must still allow-list the new locking
@@ -47,6 +48,8 @@ contract RedeployTestToken is RarityData {
         t[3] = _tier(1000, [uint128(10), 41, 81, 121, 161], [uint128(40), 80, 120, 160, 200], [uint128(0), 8, 16, 25, 35]);
         t[4] = _tier(1400, [uint128(50), 101, 151, 201, 251], [uint128(100), 150, 200, 250, 300], [uint128(0), 10, 20, 32, 45]);
         locking.setTierConfigs(t);
+        uint16 durationDays = uint16(vm.envOr("DURATION_DAYS", uint256(0)));
+        if (durationDays != 0) locking.setDurationDays(durationDays);
 
         if (seed > 0) {
             token.approve(address(pool), seed);

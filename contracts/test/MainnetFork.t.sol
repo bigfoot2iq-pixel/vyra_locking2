@@ -18,8 +18,8 @@ interface ITransferValidator {
 ///         validator), the TESTEORM test token, real holders. Skipped unless a fork RPC is given:
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
-    VyraLocking constant LOCKING = VyraLocking(0x3AA6DC19917744e83f5735E6414f671E243b8B01);
-    VyraRewardPool constant POOL = VyraRewardPool(0xDd4F315916FDfAc24143839cc3f1461E0a5313d6);
+    VyraLocking constant LOCKING = VyraLocking(0x69b02d133aBA37f2AE61BF1fd6C6B894e2FF073d);
+    VyraRewardPool constant POOL = VyraRewardPool(0xE2621518d2dEe82E554ef02f1550FfA916e6b7b6);
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);
     IERC20 constant TOKEN = IERC20(0x472B75e6E91700694d2F44d0824e725C35710f57);
     address constant OWNER = 0x16cCaC44ab58Da9Deca87424831B9929840c78b0;
@@ -34,6 +34,7 @@ contract MainnetForkTest is Test {
     uint256 constant COMMON = 1087;
     uint256 constant UNCOMMON = 1081;
     uint256 constant LEGEND = 2;
+    uint16 liveDurationDays;
 
     function setUp() public {
         string memory url = vm.envOr("FORK_URL", string(""));
@@ -47,6 +48,10 @@ contract MainnetForkTest is Test {
         }
         _fund(ALICE);
         _fund(BOB);
+        // the live Keep runs 1-day periods; the suite below checks multi-day accrual on 7
+        liveDurationDays = LOCKING.durationDays();
+        vm.prank(OWNER);
+        LOCKING.setDurationDays(7);
     }
 
     function _fund(address who) internal {
@@ -79,7 +84,7 @@ contract MainnetForkTest is Test {
         assertEq(address(LOCKING.token()), address(TOKEN));
         assertEq(address(POOL.locking()), address(LOCKING));
         assertTrue(LOCKING.rarityLocked());
-        assertEq(LOCKING.durationDays(), 7);
+        assertEq(liveDurationDays, 1);
         assertEq(LOCKING.baseTierOf(LEGEND), 4);
         assertEq(LOCKING.baseTierOf(COMMON), 0);
         assertEq(LOCKING.baseTierOf(UNCOMMON), 1);

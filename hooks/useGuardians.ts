@@ -19,8 +19,6 @@ export interface LockInfo {
   end: number;
   lockId: bigint;
   amount: bigint;
-  /** Token this period was paid in; its rewards come in the same token. */
-  token: Address;
 }
 
 export interface Guardian {
@@ -177,7 +175,6 @@ export function useGuardians() {
         end: Number(l.start) + l.durationDays * DAY,
         lockId: l.lockId,
         amount: l.amount,
-        token: l.token,
       };
       g.pending = pendingAmounts[i];
       g.claimedDays = claimed.data?.[i] !== undefined ? Number(claimed.data[i]) : undefined;

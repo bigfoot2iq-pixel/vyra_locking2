@@ -46,9 +46,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   const dayNow = l ? Math.min(daysDone + 1, l.durationDays) : 0;
   const earned = daily * BigInt(daysDone);
   const lockTotal = l ? daily * BigInt(l.durationDays) : 0n;
-  // a lock paid in a token the Keep has since switched away from can't level up; it renews instead
-  const oldToken = !!l && !!p.token && l.token.toLowerCase() !== p.token.toLowerCase();
-  const canLevelUp = !!l && !ended && !p.paused && !oldToken && l.level < topLevel(p.tiers?.[l.tier]);
+  const canLevelUp = !!l && !ended && !p.paused && l.level < topLevel(p.tiers?.[l.tier]);
 
   return (
     <article

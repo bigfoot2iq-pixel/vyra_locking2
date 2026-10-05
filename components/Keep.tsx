@@ -239,6 +239,7 @@ export function Keep() {
           buyUrl={buyUrl}
           onLockAll={openLockAll}
           isLoading={gs.isLoading}
+          failed={gs.failed}
           protocol={p}
           busy={!!busy}
           claiming={busy === "Tribute claimed"}

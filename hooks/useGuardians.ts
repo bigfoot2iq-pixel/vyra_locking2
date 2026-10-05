@@ -188,13 +188,19 @@ export function useGuardians() {
   const infoReady = allIds.length === 0 || !!perToken.data;
   const locksReady = lockedIds.length === 0 || !!locks.data;
 
+  const error = wallet.error ?? lockedQ.error ?? perToken.error ?? locks.error;
+  const pending = wallet.isLoading || lockedQ.isLoading || !infoReady || !locksReady;
+  // a read that failed before its data arrived would otherwise leave skeletons up forever
+  const failed = enabled && pending && !!error;
+
   return {
     guardians,
     locked: guardians.filter((g) => g.locked),
     idle: guardians.filter((g) => !g.locked),
     totalPending: pendingAmounts.reduce((a, b) => a + b, 0n),
-    isLoading: enabled && (wallet.isLoading || lockedQ.isLoading || !infoReady || !locksReady),
-    error: wallet.error ?? lockedQ.error ?? perToken.error ?? locks.error,
+    isLoading: enabled && pending && !failed,
+    failed,
+    error,
   };
 }
 

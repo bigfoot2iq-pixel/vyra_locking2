@@ -23,6 +23,8 @@ interface Props {
   buyUrl?: string;
   onLockAll: () => void;
   isLoading: boolean;
+  /** Reading the wallet's guardians failed before they loaded; retried in the background. */
+  failed?: boolean;
   protocol: Protocol;
   busy: boolean;
   claiming: boolean;
@@ -46,6 +48,7 @@ export function Roster({
   buyUrl,
   onLockAll,
   isLoading,
+  failed,
   protocol: p,
   busy,
   claiming,
@@ -197,7 +200,9 @@ export function Roster({
         </div>
       )}
 
-      {isLoading ? (
+      {failed ? (
+        <p className="notice notice-warn">Couldn&apos;t read your guardians from the chain. Retrying shortly; refresh if this stays.</p>
+      ) : isLoading ? (
         <Skeletons />
       ) : total === 0 ? (
         <div className="empty plate">

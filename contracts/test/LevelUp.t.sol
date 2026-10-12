@@ -25,14 +25,18 @@ contract LevelUpTest is Base {
         assertEq(token.balanceOf(address(pool)) - poolBefore, 27e18 - 1.5e18);
         // remaining 4 days at 1.5/day
         assertEq(pool.totalReserved(), 6e18);
+        assertEq(pool.totalStaked(), 30e18, "the top-up is locked with the rest");
         assertEq(locking.totalLevelPayments(), 7e18);
         assertEq(locking.totalLockPayments(), 30e18);
 
         vm.warp(block.timestamp + 4 days);
         assertEq(pool.pendingOf(COMMON_ID), 6e18);
+        aliceBefore = token.balanceOf(alice);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
+        assertEq(token.balanceOf(alice) - aliceBefore, 6e18 + 30e18, "all 30 come back");
         assertEq(pool.totalReserved(), 0);
+        assertEq(pool.totalStaked(), 0);
         assertEq(pool.totalPaidOut(), 7.5e18);
     }
 

@@ -13,6 +13,7 @@ import { Dialog } from "./Dialog";
 import { LockIcon, RenewIcon } from "./icons";
 import { useCeremony } from "./fx/Ceremony";
 import { useGuardianImage } from "./GuardianArt";
+import { PayBreakdown } from "./PayBreakdown";
 import { ShortNotice } from "./ShortNotice";
 import { TierBadge, tierStyle } from "./TierBadge";
 import { WalletHint } from "./WalletHint";
@@ -80,10 +81,15 @@ export function LockDialog({
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   // Renewing never moves the NFT, so only new locks depend on the collection's allow-list.
   const blocked = mode === "lock" && p.keepAllowed === false;
-  const short = p.balance !== undefined && p.balance < pay;
-  // the payment lands in the pool before this lock's rewards are reserved
-  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + pay;
   const unclaimed = g.pending ?? 0n;
+  // A renewal closes the finished lock first, in the same transaction: its amount and unclaimed tribute
+  // land in the wallet before the new amount is taken (when both are in the token the Keep uses now).
+  const sameToken = !!g.lock && !!p.token && g.lock.token.toLowerCase() === p.token.toLowerCase();
+  const credit = mode === "renew" && sameToken ? g.lock!.amount + unclaimed : 0n;
+  const need = pay > credit ? pay - credit : 0n;
+  const short = p.balance !== undefined && p.balance < need;
+  // tribute is backed by the pool's free fund; of this payment only the level fee joins it
+  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + fee;
 
   const usdOf = (v: bigint) => (usd !== undefined ? fmtUsd(Number(formatUnits(v, p.decimals)) * usd) : "");
 
@@ -247,39 +253,26 @@ export function LockDialog({
           </div>
         </div>
 
-        <div className="breakdown num">
-          <div>
-            <span className="dim">Locked (earns tribute)</span>
-            <span>{fmtToken(a, p.decimals)}</span>
-          </div>
-          <div>
-            <span className="dim">Level {level + 1} fee</span>
-            <span>{fee > 0n ? fmtToken(fee, p.decimals) : "free"}</span>
-          </div>
-          <div>
-            <span className="dim">You pay into the reward pool</span>
-            <span>
-              {fmtToken(pay, p.decimals)} {p.symbol}
-            </span>
-          </div>
-          <div className="total">
-            <span>
-              Tribute: {fmtToken(daily, p.decimals)}/day × {days.toString()} days
-            </span>
-            <span style={{ color: "var(--tier)" }}>
-              {fmtToken(total, p.decimals)} {p.symbol}
-            </span>
-          </div>
-        </div>
+        <PayBreakdown
+          protocol={p}
+          locked={a}
+          fees={fee}
+          tribute={total}
+          tributeLabel={`${fmtToken(daily, p.decimals)}/day × ${days.toString()} days`}
+        />
 
-        {mode === "renew" && unclaimed > 0n && (
+        {mode === "renew" && g.lock && (
           <p className="notice" style={{ marginTop: 0 }}>
-            <span className="gem-sm" /> Your {fmtToken(unclaimed, p.decimals)} {p.symbol} of unclaimed tribute is paid out
-            first.
+            <span className="gem-sm" />
+            <span>
+              Your {fmtToken(g.lock.amount, p.decimals)} {sameToken ? p.symbol : "tokens"} from the finished lock
+              {unclaimed > 0n ? ` and ${fmtToken(unclaimed, p.decimals)} of unclaimed tribute come` : " comes"} back to you
+              first, in the same transaction.
+            </span>
           </p>
         )}
         {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
-        <ShortNotice protocol={p} pay={pay} />
+        <ShortNotice protocol={p} pay={need} />
         {poolShort && (
           <p className="notice notice-warn">The reward pool can&apos;t back this much tribute right now. Try a smaller amount.</p>
         )}
@@ -317,7 +310,8 @@ export function LockDialog({
           {label}
         </button>
         <p className="faint" style={{ fontSize: "0.76rem", textAlign: "center", marginTop: 12 }}>
-          Your guardian stays in the Keep for {days.toString()} days and cannot leave early.
+          Your guardian and tokens stay in the Keep for {days.toString()} days and can&apos;t leave early. Then unlock to
+          take both home.
         </p>
       </div>
     </Dialog>

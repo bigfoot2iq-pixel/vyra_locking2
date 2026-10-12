@@ -1,8 +1,9 @@
 # VYRA · The Keep
 
-NFT locking and daily-reward dApp for the [VYRA](https://www.vyranfts.xyz/) guardians on Ink. Holders lock a guardian with tokens, the tokens go to a self-funding reward pool, and holders claim a daily tribute from it.
+NFT locking and daily-reward dApp for the [VYRA](https://www.vyranfts.xyz/) guardians on Ink. Holders lock a guardian together with tokens, earn a daily tribute on them, and get the guardian and every locked token back when the lock ends.
 
 - `contracts/`: Foundry project (`VyraLocking` + `VyraRewardPool`). See [contracts/README.md](contracts/README.md) for the rules and the pool security model.
+  - `/#trust` on the site shows holders the same guarantees, live pool numbers and the verified contracts.
 - `app/`, `components/`, `hooks/`, `lib/`: Next.js 16 frontend (wagmi 2, viem, RainbowKit).
   - `/`: The Keep: lock (with level picker), level up a running lock, daily vigil track, claim, renew, unlock.
   - `/admin`: Council: all owner config. Only visible to the locking contract owner, or to signers of the owner Safe (buttons then copy Safe calldata). Everyone else is redirected to `/`. The contracts enforce `onlyOwner` regardless.

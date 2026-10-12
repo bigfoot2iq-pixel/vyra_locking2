@@ -10,7 +10,8 @@ import {MockVyraNFT} from "../src/mocks/MockVyraNFT.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
 
 /// @notice Testnet / local setup: mocks, sample tiers + levels, the REAL collection rarity map,
-///         a 100-token pool seed, and one guardian of each rarity minted to the deployer.
+///         a 1,000-token reward fund seed (tribute is paid only from it, never from locked tokens),
+///         and one guardian of each rarity minted to the deployer.
 ///         Deployer stays owner.
 ///   Optional env: NFT_BASE_URI
 contract DeployTestnet is RarityData {
@@ -38,8 +39,8 @@ contract DeployTestnet is RarityData {
         locking.setRarityWords(0, rarityWords());
 
         token.faucet(deployer, 1_000_000e18);
-        token.approve(address(pool), 100e18);
-        pool.deposit(100e18); // the owner's one-time seed
+        token.approve(address(pool), 1_000e18);
+        pool.deposit(1_000e18); // the owner's seed: the reward fund
         // one of each rarity per the real map: Legendary 1-2, Epic 36, Rare 21, Uncommon 24, Common 22-23
         uint256[] memory demo = new uint256[](7);
         (demo[0], demo[1], demo[2], demo[3], demo[4], demo[5], demo[6]) = (1, 2, 36, 21, 24, 22, 23);

@@ -14,7 +14,7 @@ interface IVyraLocking {
         uint16 durationDays;
         uint40 start;
         uint64 lockId; // unique per lock/renew; keys the pool's claim ledger
-        uint128 amount; // tokens paid into the pool for this period
+        uint128 amount; // tokens locked for this period, held by the pool and returned when it closes
         IERC20 token; // token this period was paid in; its rewards are paid in the same token
     }
 

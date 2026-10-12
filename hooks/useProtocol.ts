@@ -52,6 +52,8 @@ export function useProtocol() {
       { ...pool, functionName: "totalPaidOut" },
       { ...pool, functionName: "totalDeposited" },
       { ...pool, functionName: "totalWithdrawn" },
+      { ...pool, functionName: "totalStaked" },
+      { ...pool, functionName: "totalReturned" },
     ],
     query: { enabled: isConfigured, refetchInterval: 30_000 },
   });
@@ -95,6 +97,7 @@ export function useProtocol() {
   const t = tok.data;
   const poolBalance = t?.[5];
   const totalReserved = d?.[11];
+  const totalStaked = d?.[17];
 
   return {
     isLoading: core.isLoading || (tokenSet && tok.isLoading),
@@ -116,17 +119,22 @@ export function useProtocol() {
     totalPaidOut: d?.[14],
     totalDeposited: d?.[15],
     totalWithdrawn: d?.[16],
+    /** Holders' locked tokens the pool holds for them; they come back when each lock closes. */
+    totalStaked,
+    /** Locked tokens already handed back to holders. */
+    totalReturned: d?.[18],
     symbol: t?.[0] ?? "TOKEN",
     decimals: t?.[1] ?? 18,
     balance: t?.[2],
     allowanceLocking: t?.[3],
     allowancePool: t?.[4],
     poolBalance,
+    /** What pays tribute: the pool minus holders' locked tokens (promised rewards included). */
+    rewardFund: poolBalance !== undefined && totalStaked !== undefined ? sub(poolBalance, totalStaked) : undefined,
+    /** Free for new locks' tribute and owner withdrawals: neither locked by holders nor promised. */
     poolAvailable:
-      poolBalance !== undefined && totalReserved !== undefined
-        ? poolBalance > totalReserved
-          ? poolBalance - totalReserved
-          : 0n
+      poolBalance !== undefined && totalReserved !== undefined && totalStaked !== undefined
+        ? sub(poolBalance, totalReserved + totalStaked)
         : undefined,
     nftApproved: t?.[6],
     /** Whether the NFT collection lets the locking contract move guardians; undefined while loading. */
@@ -135,6 +143,8 @@ export function useProtocol() {
 }
 
 export type Protocol = ReturnType<typeof useProtocol>;
+
+const sub = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
 
 /** Highest level index (0-based) that is configured for a tier, or -1 if the tier is closed. */
 export function topLevel(cfg: TierConfig | undefined): number {

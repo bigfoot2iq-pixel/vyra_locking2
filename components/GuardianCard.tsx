@@ -77,9 +77,12 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
         {l ? (
           <>
             <div className="card-row">
-              <span className="dim">{ended ? "Locked" : "Earning"}</span>
+              <span className="dim">{ended ? "Back to you" : "Earning"}</span>
               <span className="card-row-end">
-                <span className="num" title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day`}>
+                <span
+                  className="num"
+                  title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day, returned in full at unlock`}
+                >
                   {ended
                     ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
                     : `+${fmtToken(daily, p.decimals)} ${p.symbol}/day`}
@@ -89,7 +92,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             </div>
             {!ended && (
               <dl className="card-facts num">
-                <div>
+                <div title="Returned to you in full when you unlock">
                   <dt>Locked</dt>
                   <dd>
                     {fmtToken(l.amount, p.decimals)}
@@ -144,7 +147,12 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 <button className="gbtn gbtn-gloss gbtn-tier gbtn-sm" disabled={busy || p.paused} onClick={onRenew}>
                   <RenewIcon /> Renew
                 </button>
-                <button className="gbtn gbtn-stone gbtn-sm" disabled={busy} onClick={onUnlock}>
+                <button
+                  className="gbtn gbtn-stone gbtn-sm"
+                  disabled={busy}
+                  onClick={onUnlock}
+                  title={`Take your guardian and ${fmtToken(l.amount + (g.pending ?? 0n), p.decimals)} ${p.symbol} home`}
+                >
                   <UnlockIcon /> Unlock
                 </button>
               </div>

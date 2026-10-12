@@ -78,7 +78,7 @@ contract VyraLockingTest is Base {
         locking.lock(ids(10), ids(16e18), lv(0)); // id 10 is Uncommon too: 16 > 15
     }
 
-    // ---------------------------------------------------------------- lock: everything goes to the pool
+    // ---------------------------------------------------------------- lock: the amount is held by the pool
 
     function test_lock_paysPoolInFull_nothingBurned() public {
         uint256 supply = token.totalSupply();
@@ -89,6 +89,8 @@ contract VyraLockingTest is Base {
         assertEq(token.balanceOf(address(locking)), 0, "locking holds no tokens");
         assertEq(nft.ownerOf(COMMON_ID), address(locking));
         assertEq(pool.totalReserved(), 2.8e18); // 8 * 5% * 7
+        assertEq(pool.totalStaked(), 8e18, "held for alice, not free");
+        assertEq(pool.available(), SEED - 2.8e18, "rewards come out of the seed");
         assertEq(locking.totalLockPayments(), 8e18);
 
         IVyraLocking.Lock memory l = locking.lockOf(COMMON_ID);
@@ -133,23 +135,28 @@ contract VyraLockingTest is Base {
         locking.lock(ids(COMMON_ID), ids(5e18), lv(0));
     }
 
-    /// Tiers paying ≤ 100% over a period fund themselves: works even with an empty pool.
-    function test_selfFunding_whenReturnAtMost100Percent() public {
+    /// A holder's locked tokens never back anyone's rewards: with no free balance, nothing can lock.
+    function test_lockedTokensNeverBackRewards() public {
         vm.prank(owner);
         pool.withdrawSurplus(owner, SEED);
         assertEq(token.balanceOf(address(pool)), 0);
-        lockAs(alice, COMMON_ID, 10e18); // 35% return
-        assertEq(pool.totalReserved(), 3.5e18);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.InsufficientPool.selector, 3.5e18, 0));
+        locking.lock(ids(COMMON_ID), ids(10e18), lv(0));
     }
 
-    /// Tiers paying > 100% need pool surplus (seed + upgrade income) to cover the excess.
-    function test_lockRevertsWhenPoolCannotCoverExcess() public {
-        vm.prank(owner);
-        pool.withdrawSurplus(owner, SEED);
+    /// Rewards are reserved out of the free balance (seed + level fees) only.
+    function test_lockRevertsWhenPoolCannotCoverRewards() public {
         vm.prank(alice);
-        // legendary 100 tokens at 15%/day for 7 days = 105 reserve, pool only has the 100 just paid
-        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.InsufficientPool.selector, 105e18, 100e18));
+        // legendary 100 tokens at 15%/day for 7 days = 105 reserve, the free balance is the 100 seed
+        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.InsufficientPool.selector, 105e18, SEED));
         locking.lock(ids(LEGENDARY_ID), ids(100e18), lv(0));
+    }
+
+    /// Level fees are kept by the pool and fund later rewards.
+    function test_levelFeesGrowTheFreeBalance() public {
+        lockAs(alice, COMMON_ID, 30e18, 2); // fee 7, reserve 10.5
+        assertEq(pool.available(), SEED + 7e18 - 10.5e18);
     }
 
     // ---------------------------------------------------------------- levels (chosen at lock time)
@@ -315,12 +322,36 @@ contract VyraLockingTest is Base {
 
         vm.warp(block.timestamp + 10 days);
         uint256 before = token.balanceOf(alice);
+        vm.expectEmit(address(locking));
+        emit VyraLocking.Unlocked(alice, COMMON_ID, 0.8e18, 4e18);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 0.8e18);
+        assertEq(token.balanceOf(alice) - before, 0.8e18 + 4e18, "remaining days + the locked amount");
         assertEq(nft.ownerOf(COMMON_ID), alice);
         assertEq(pool.totalReserved(), 0);
+        assertEq(pool.totalStaked(), 0);
+        assertEq(pool.totalReturned(), 4e18);
         assertEq(locking.totalLocked(), 0);
+    }
+
+    /// The full round trip: only the level fee is spent, the locked amount comes back, plus rewards.
+    function test_unlock_returnsLockedAmountInFull() public {
+        uint256 start = token.balanceOf(alice);
+        lockAs(alice, COMMON_ID, 30e18, 2); // L3: 30 locked + 7 fee, 1.5/day
+        assertEq(start - token.balanceOf(alice), 37e18);
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(alice);
+        locking.unlock(ids(COMMON_ID));
+        assertEq(token.balanceOf(alice), start - 7e18 + 10.5e18);
+        assertEq(token.balanceOf(address(pool)), SEED + 7e18 - 10.5e18);
+    }
+
+    function test_unlock_batchRejectsRepeatedId() public {
+        lockAs(alice, COMMON_ID, 4e18);
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.NotLocked.selector, COMMON_ID));
+        locking.unlock(ids(COMMON_ID, COMMON_ID));
     }
 
     function test_unlock_revertsForNonOwner() public {
@@ -339,12 +370,33 @@ contract VyraLockingTest is Base {
         uint256 before = token.balanceOf(alice);
         vm.prank(alice);
         locking.renew(ids(COMMON_ID), ids(2e18), lv(0));
-        assertEq(before + 1.4e18 - 2e18, token.balanceOf(alice));
+        assertEq(before + 1.4e18 + 4e18 - 2e18, token.balanceOf(alice), "old amount back, new amount in");
         IVyraLocking.Lock memory l = locking.lockOf(COMMON_ID);
         assertGt(l.lockId, firstId);
         assertEq(l.start, block.timestamp);
         assertEq(pool.totalReserved(), 0.7e18);
+        assertEq(pool.totalStaked(), 2e18);
         assertEq(nft.ownerOf(COMMON_ID), address(locking));
+    }
+
+    /// A renewal only needs the new amount on hand: the old one comes back first.
+    function test_renew_worksWithEmptyWallet() public {
+        lockAs(alice, COMMON_ID, 10e18);
+        vm.warp(block.timestamp + 7 days);
+        vm.startPrank(alice);
+        token.transfer(bob, token.balanceOf(alice));
+        locking.renew(ids(COMMON_ID), ids(10e18), lv(0));
+        vm.stopPrank();
+        assertEq(token.balanceOf(alice), 3.5e18, "only the rewards are left in hand");
+    }
+
+    function test_renew_batchRejectsRepeatedId() public {
+        lockAs(alice, COMMON_ID, 4e18);
+        vm.warp(block.timestamp + 7 days);
+        uint40 end = uint40(block.timestamp + 7 days);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.LockNotEnded.selector, COMMON_ID, end));
+        locking.renew(ids(COMMON_ID, COMMON_ID), ids(4e18, 4e18), new uint8[](2));
     }
 
     // ---------------------------------------------------------------- pool security
@@ -364,21 +416,24 @@ contract VyraLockingTest is Base {
         pool.withdrawSurplus(alice, 1);
     }
 
-    function test_pool_ownerCannotTouchReserved() public {
-        lockAs(alice, LEGENDARY_ID, 100e18); // reserves 105
+    function test_pool_ownerCannotTouchLockedOrReserved() public {
+        lockAs(alice, LEGENDARY_ID, 50e18); // locks 50, reserves 52.5
         uint256 free = pool.available();
-        assertEq(free, SEED + 100e18 - 105e18);
+        assertEq(free, SEED - 52.5e18);
         vm.startPrank(owner);
         vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.ExceedsSurplus.selector, free + 1, free));
         pool.withdrawSurplus(owner, free + 1);
         pool.withdrawSurplus(owner, free);
         vm.stopPrank();
 
+        uint256 before = token.balanceOf(alice);
         vm.warp(block.timestamp + 7 days);
         vm.prank(alice);
-        locking.unlock(ids(LEGENDARY_ID)); // still fully paid
+        locking.unlock(ids(LEGENDARY_ID)); // still fully paid, and the 50 come back
+        assertEq(token.balanceOf(alice) - before, 52.5e18 + 50e18);
         assertEq(token.balanceOf(address(pool)), 0);
-        assertEq(pool.totalPaidOut(), 105e18);
+        assertEq(pool.totalPaidOut(), 52.5e18);
+        assertEq(pool.totalReturned(), 50e18);
     }
 
     function test_pool_onlyLockingCanReserveOrSettle() public {
@@ -392,10 +447,10 @@ contract VyraLockingTest is Base {
         vm.stopPrank();
     }
 
-    function test_pool_cannotWithdrawReservedRewards() public {
-        lockAs(alice, COMMON_ID, 4e18); // reserves 1.4
+    function test_pool_cannotWithdrawLockedOrReserved() public {
+        lockAs(alice, COMMON_ID, 4e18); // locks 4, reserves 1.4
         uint256 free = pool.availableOf(token);
-        assertEq(free, SEED + 4e18 - 1.4e18);
+        assertEq(free, SEED - 1.4e18);
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.ExceedsSurplus.selector, free + 1, free));
         pool.withdrawSurplusOf(token, owner, free + 1);
@@ -483,11 +538,11 @@ contract VyraLockingTest is Base {
 
         uint256 before = token.balanceOf(alice);
         vm.expectEmit(address(locking));
-        emit VyraLocking.EmergencyReturned(alice, COMMON_ID, 1e18);
+        emit VyraLocking.EmergencyReturned(alice, COMMON_ID, 1e18, 4e18);
         vm.prank(owner);
         locking.emergencyReturn(ids(COMMON_ID));
 
-        assertEq(token.balanceOf(alice) - before, 1e18); // the 5 remaining days
+        assertEq(token.balanceOf(alice) - before, 1e18 + 4e18); // the 5 remaining days + the locked amount
         assertEq(nft.ownerOf(COMMON_ID), alice);
         assertEq(locking.lockOf(COMMON_ID).owner, address(0));
         assertEq(locking.lockedTokensOf(alice).length, 0);
@@ -507,9 +562,10 @@ contract VyraLockingTest is Base {
         uint256 before = token.balanceOf(alice);
         vm.prank(owner);
         locking.emergencyReturn(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 3.6e18);
+        assertEq(token.balanceOf(alice) - before, 3.6e18 + 12e18);
         assertEq(nft.ownerOf(COMMON_ID), alice);
         assertEq(pool.totalReserved(), 0);
+        assertEq(pool.totalStaked(), 0);
     }
 
     function test_emergencyReturn_afterPeriodEndPaysOnlyWhatIsLeft() public {
@@ -518,7 +574,7 @@ contract VyraLockingTest is Base {
         uint256 before = token.balanceOf(alice);
         vm.prank(owner);
         locking.emergencyReturn(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 1.4e18);
+        assertEq(token.balanceOf(alice) - before, 1.4e18 + 4e18);
     }
 
     function test_emergencyReturn_ownerOnlyAndLockedOnly() public {
@@ -564,11 +620,15 @@ contract VyraLockingTest is Base {
         assertEq(nft.ownerOf(12), bob);
         assertEq(locking.totalLocked(), 0);
         assertEq(pool.totalReserved(), 0);
+        assertEq(pool.totalStaked(), 0);
+        assertEq(token.balanceOf(bob), 100e18 + 1.4e18, "bob: the 4 locked back + 2 x 0.7 reward");
     }
 
-    function test_pool_onlyLockingCanSettleFull() public {
+    function test_pool_onlyLockingCanClose() public {
         vm.expectRevert(VyraRewardPool.NotLocking.selector);
-        pool.settleFull(COMMON_ID);
+        pool.closeFull(COMMON_ID);
+        vm.expectRevert(VyraRewardPool.NotLocking.selector);
+        pool.close(COMMON_ID);
     }
 
     // ---------------------------------------------------------------- fuzz
@@ -593,7 +653,8 @@ contract VyraLockingTest is Base {
         }
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, reserved);
+        assertEq(token.balanceOf(alice) - before, reserved + amount);
         assertEq(pool.totalReserved(), 0);
+        assertEq(pool.totalStaked(), 0);
     }
 }

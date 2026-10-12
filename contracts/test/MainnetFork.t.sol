@@ -14,12 +14,16 @@ interface ITransferValidator {
     function addAccountToWhitelist(uint120 id, address account) external;
 }
 
-/// @notice Runs against the live Ink deployment: real VYRA NFT (with OpenSea's transfer
-///         validator), the TESTEORM test token, real holders. Skipped unless a fork RPC is given:
+/// @notice Runs this source against Ink mainnet state: real VYRA NFT (with OpenSea's transfer
+///         validator), the TESTEORM test token, real holders. A fresh Keep is deployed on the fork
+///         with the rarity map and tier table copied from the live one, so new code is checked
+///         end to end before it ships. Skipped unless a fork RPC is given:
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
-    VyraLocking constant LOCKING = VyraLocking(0x69b02d133aBA37f2AE61BF1fd6C6B894e2FF073d);
-    VyraRewardPool constant POOL = VyraRewardPool(0xE2621518d2dEe82E554ef02f1550FfA916e6b7b6);
+    /// the Keep live on Ink: source of the frozen rarity map and the tier table
+    VyraLocking constant LIVE = VyraLocking(0x69b02d133aBA37f2AE61BF1fd6C6B894e2FF073d);
+    VyraLocking LOCKING;
+    VyraRewardPool POOL;
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);
     IERC20 constant TOKEN = IERC20(0x472B75e6E91700694d2F44d0824e725C35710f57);
     address constant OWNER = 0x16cCaC44ab58Da9Deca87424831B9929840c78b0;
@@ -29,29 +33,47 @@ contract MainnetForkTest is Test {
 
     // Real holders and guardians they hold on Ink (tiers from the frozen rarity map).
     address constant ALICE = 0xAa06Db40EE9FFA818eE3149CE7D07a89573289dE; // 1087 Common, 1081 Uncommon
-    address constant BOB = 0xFFABc67Fe0737CD4fA32eA4Cac951eEedaFFc2cC; // 2, 3 Legendary
+    address constant BOB = 0xFFABc67Fe0737CD4fA32eA4Cac951eEedaFFc2cC; // holds Legendaries (ids 1-20)
     address constant STRANGER = address(0xBEEF);
     uint256 constant COMMON = 1087;
     uint256 constant UNCOMMON = 1081;
-    uint256 constant LEGEND = 2;
-    uint16 liveDurationDays;
+    /// a Legendary Bob still holds (live locks move some into the live Keep)
+    uint256 LEGEND;
+    uint256 constant SEED = 1_000e18;
 
     function setUp() public {
         string memory url = vm.envOr("FORK_URL", string(""));
         if (bytes(url).length == 0) vm.skip(true);
         vm.createSelectFork(url);
-        // Until the collection owner allow-lists this locking contract on OpenSea's validator,
-        // simulate that one transaction so the rest of the suite can run.
-        if (!VALIDATOR.isAccountWhitelistedByCollection(address(NFT), address(LOCKING))) {
-            vm.prank(COLLECTION_OWNER);
-            VALIDATOR.addAccountToWhitelist(COLLECTION_LIST, address(LOCKING));
-        }
+
+        vm.startPrank(OWNER);
+        POOL = new VyraRewardPool(OWNER);
+        LOCKING = new VyraLocking(OWNER, NFT, address(POOL));
+        POOL.setLocking(address(LOCKING));
+        LOCKING.setRarityWords(0, LIVE.rarityWords(0, 18));
+        LOCKING.lockRarity();
+        LOCKING.setTierConfigs(LIVE.tierConfigs());
+        LOCKING.setToken(TOKEN);
+        vm.stopPrank();
+
+        // the collection owner must allow-list every new locking contract on OpenSea's validator;
+        // simulate that one transaction here
+        vm.prank(COLLECTION_OWNER);
+        VALIDATOR.addAccountToWhitelist(COLLECTION_LIST, address(LOCKING));
+
+        // rewards are paid from the free balance only, so the owner seeds it
+        deal(address(TOKEN), OWNER, SEED);
+        vm.startPrank(OWNER);
+        TOKEN.approve(address(POOL), SEED);
+        POOL.deposit(SEED);
+        vm.stopPrank();
+
         _fund(ALICE);
         _fund(BOB);
-        // the live Keep runs 1-day periods; the suite below checks multi-day accrual on 7
-        liveDurationDays = LOCKING.durationDays();
-        vm.prank(OWNER);
-        LOCKING.setDurationDays(7);
+        for (uint256 id = 1; id <= 20 && LEGEND == 0; ++id) {
+            if (NFT.ownerOf(id) == BOB) LEGEND = id;
+        }
+        require(LEGEND != 0, "Bob holds no Legendary");
     }
 
     function _fund(address who) internal {
@@ -84,7 +106,8 @@ contract MainnetForkTest is Test {
         assertEq(address(LOCKING.token()), address(TOKEN));
         assertEq(address(POOL.locking()), address(LOCKING));
         assertTrue(LOCKING.rarityLocked());
-        assertEq(liveDurationDays, 1);
+        assertEq(LOCKING.durationDays(), 7);
+        assertEq(POOL.available(), SEED);
         assertEq(LOCKING.baseTierOf(LEGEND), 4);
         assertEq(LOCKING.baseTierOf(COMMON), 0);
         assertEq(LOCKING.baseTierOf(UNCOMMON), 1);
@@ -96,7 +119,8 @@ contract MainnetForkTest is Test {
         uint256 poolBefore = TOKEN.balanceOf(address(POOL));
         _lock(ALICE, COMMON, 5e18, 0);
         assertEq(NFT.ownerOf(COMMON), address(LOCKING), "NFT held by locking");
-        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 5e18, "payment in pool");
+        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 5e18, "amount held by the pool");
+        assertEq(POOL.totalStaked(), 5e18);
         assertEq(TOKEN.balanceOf(address(LOCKING)), 0, "locking never holds tokens");
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 1);
     }
@@ -220,7 +244,8 @@ contract MainnetForkTest is Test {
         vm.prank(ALICE);
         LOCKING.unlock(_one(UNCOMMON));
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18, "all 7 days paid on unlock");
+        assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18 + 10e18, "all 7 days paid and the 10 returned");
+        assertEq(POOL.totalStaked(), 0);
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 0);
     }
 
@@ -237,8 +262,8 @@ contract MainnetForkTest is Test {
         LOCKING.emergencyReturnAll(10);
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "alice's guardian back home");
         assertEq(NFT.ownerOf(LEGEND), BOB, "bob's guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18, "full period paid");
-        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18, "full period paid");
+        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18 + 10e18, "full period paid, amount returned");
+        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18 + 50e18, "full period paid, amount returned");
         assertEq(LOCKING.allLockedCount(), 0);
         assertEq(POOL.totalReserved(), 0);
     }
@@ -253,7 +278,9 @@ contract MainnetForkTest is Test {
         LOCKING.renew(_one(COMMON), _one(25e18), levels);
         assertEq(NFT.ownerOf(COMMON), address(LOCKING));
         assertEq(LOCKING.lockOf(COMMON).level, 2);
-        assertEq(before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 7 * 0.25e18, "new payment minus old rewards");
+        assertEq(
+            before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 7 * 0.25e18 - 5e18, "new payment minus old rewards and amount"
+        );
     }
 
     function test_unlockedGuardianCanStillBeTransferredByHolder() public {
@@ -306,14 +333,8 @@ contract MainnetForkTest is Test {
         LOCKING.setRarityWords(0, words);
     }
 
-    function test_ownerCannotWithdrawReservedRewards() public {
-        deal(address(TOKEN), OWNER, 1_000e18);
-        vm.startPrank(OWNER);
-        TOKEN.approve(address(POOL), 1_000e18);
-        POOL.deposit(1_000e18);
-        vm.stopPrank();
-
-        _lock(BOB, LEGEND, 100e18, 0); // reserves 98 VR for Bob
+    function test_ownerCannotWithdrawLockedTokensOrReservedRewards() public {
+        _lock(BOB, LEGEND, 100e18, 0); // holds Bob's 100, reserves 98 for Bob
 
         uint256 free = POOL.available();
         vm.prank(OWNER);
@@ -326,6 +347,6 @@ contract MainnetForkTest is Test {
         uint256 before = TOKEN.balanceOf(BOB);
         vm.prank(BOB);
         LOCKING.unlock(_one(LEGEND));
-        assertEq(TOKEN.balanceOf(BOB) - before, 98e18, "Bob still paid in full");
+        assertEq(TOKEN.balanceOf(BOB) - before, 98e18 + 100e18, "Bob still paid in full, and the 100 back");
     }
 }

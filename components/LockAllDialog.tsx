@@ -8,12 +8,13 @@ import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
 import { addresses } from "@/lib/env";
-import { fmtToken, plural, usdOf } from "@/lib/format";
+import { fmtToken, plural } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
 import { Dialog } from "./Dialog";
 import { useCeremony } from "./fx/Ceremony";
 import { GuardianArt, useGuardianImage } from "./GuardianArt";
 import { LockIcon } from "./icons";
+import { PayBreakdown } from "./PayBreakdown";
 import { ShortNotice } from "./ShortNotice";
 import { tierStyle } from "./TierBadge";
 import { WalletHint } from "./WalletHint";
@@ -80,7 +81,8 @@ export function LockAllDialog({
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const blocked = p.keepAllowed === false;
   const short = p.balance !== undefined && p.balance < pay;
-  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable + pay;
+  // tribute is backed by the pool's free fund; of this payment only the level fees join it
+  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable + fees;
 
   const steps: { key: StepKey; label: string; needed: boolean }[] = [
     { key: "nft", label: "Let the Keep hold your guardians", needed: needNft },
@@ -160,7 +162,8 @@ export function LockAllDialog({
   return (
     <Dialog title={`Lock ${plural(lockable.length, "guardian")}`} kicker={<>◆ Lock all</>} image={leadImage} onClose={onClose}>
       <p className="dim" style={{ margin: "-8px 0 16px", fontSize: "0.84rem" }}>
-        Each guardian locks its level&apos;s full amount. Level 1 has no fee. Higher levels earn more
+        Each guardian locks its level&apos;s full amount, and every token comes back when you unlock. Level 1 has no fee.
+        Higher levels earn more
         {bestUpside > 0n && <>, up to {fmtToken(bestUpside, p.decimals, 0)} {p.symbol} across all of them</>}.
       </p>
 
@@ -209,29 +212,15 @@ export function LockAllDialog({
         })}
       </ul>
 
-      <div className="breakdown num">
-        <div>
-          <span className="dim">Locked (earns tribute)</span>
-          <span>{fmtToken(locked, p.decimals)}</span>
-        </div>
-        <div>
-          <span className="dim">Level fees</span>
-          <span>{fees > 0n ? fmtToken(fees, p.decimals) : "free"}</span>
-        </div>
-        <div>
-          <span className="dim">You pay into the reward pool</span>
-          <span>
-            {fmtToken(pay, p.decimals)} {p.symbol}
-          </span>
-        </div>
-        <div className="total">
-          <span>Tribute over {p.durationDays ?? "—"} days</span>
-          <span style={{ color: "var(--aurum)" }}>
-            {fmtToken(tribute, p.decimals)} {p.symbol}
-            {usd !== undefined && tribute > 0n && <small className="faint"> {usdOf(tribute, p.decimals, usd)}</small>}
-          </span>
-        </div>
-      </div>
+      <PayBreakdown
+        protocol={p}
+        locked={locked}
+        fees={fees}
+        tribute={tribute}
+        tributeLabel={`over ${p.durationDays ?? "—"} days`}
+        usd={usd}
+        accent="var(--aurum)"
+      />
 
       <ShortNotice protocol={p} pay={pay} />
       {poolShort && (

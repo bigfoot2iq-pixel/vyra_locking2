@@ -28,6 +28,7 @@ export function SiteHeader() {
           <Link href="/" aria-current={path === "/" ? "page" : undefined}>
             The Keep
           </Link>
+          <Link href="/#trust">Safety</Link>
           {isAdmin && (
             <Link href="/admin" aria-current={path === "/admin" ? "page" : undefined}>
               Council

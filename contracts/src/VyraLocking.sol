@@ -15,24 +15,28 @@ interface IRewardPool {
     function settle(uint256 tokenId) external returns (uint256);
     function release(uint256 tokenId) external;
     function reserveRemaining(uint256 tokenId) external;
-    function settleFull(uint256 tokenId) external returns (uint256);
+    function close(uint256 tokenId) external returns (uint256 reward, uint256 stake);
+    function closeFull(uint256 tokenId) external returns (uint256 reward, uint256 stake);
 }
 
 /// @title VyraLocking
-/// @notice Holders lock a VYRA guardian for a fixed period and pay a level-bounded amount of the
-///         token into the {VyraRewardPool}; the pool pays daily rewards on that amount.
+/// @notice Holders lock a VYRA guardian together with a level-bounded amount of the token for a fixed
+///         period. The amount is held by the {VyraRewardPool}, earns daily rewards, and comes back to
+///         the holder in full with the guardian when the lock closes.
 /// @dev Tiers match the collection's "Rarity" trait: 0 Common, 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary.
 ///      Each token's tier is stored in a packed on-chain map (4 bits per token) uploaded by the owner.
 ///      Each tier has 5 levels (0-based here, shown as 1-5). A level sets the allowed lock amount.
 ///      The holder picks the level when locking or renewing: level 1 is free, a higher level costs
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
 ///      the fee difference plus a top-up, and the remaining days earn on the bigger amount.
-///      Everything goes to the pool. Nothing is burned and this contract never keeps tokens.
+///      Locked amounts sit in the pool until the lock closes (unlock, renew or emergency return),
+///      then go back to the holder. Level fees stay in the pool and fund rewards. Nothing is burned
+///      and this contract never keeps tokens.
 ///      The owner can switch the payment token at any time. New locks, renewals and level-ups use
 ///      the new token; a running lock keeps the token it was paid in, and its rewards come in that
 ///      token. A lock paid in an old token can't level up; it renews into the new one.
-///      Emergency gate: the owner can hand any locked guardian back to its holder early, with the
-///      full period's reward paid out (see {emergencyReturn}).
+///      Emergency gate: the owner can hand any locked guardian back to its holder early, with its
+///      locked amount and the full period's reward (see {emergencyReturn}).
 contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -74,7 +78,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     uint64 public nextLockId = 1;
     uint256 public totalLocked;
-    /// @notice Tokens paid into the pool by lock payments, per payment token.
+    /// @notice Tokens ever locked (including level-up top-ups), per payment token. They come back to
+    ///         holders when their locks close; see the pool's `stakedOf` / `returnedOf`.
     mapping(IERC20 token => uint256) public lockPaymentsOf;
     /// @notice Tokens paid into the pool as level fees, per payment token.
     mapping(IERC20 token => uint256) public levelPaymentsOf;
@@ -99,8 +104,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         uint256 levelFee,
         uint40 end
     );
-    event Unlocked(address indexed owner, uint256 indexed tokenId);
-    event EmergencyReturned(address indexed owner, uint256 indexed tokenId, uint256 rewardPaid);
+    event Unlocked(address indexed owner, uint256 indexed tokenId, uint256 rewardPaid, uint256 amountReturned);
+    event EmergencyReturned(address indexed owner, uint256 indexed tokenId, uint256 rewardPaid, uint256 amountReturned);
     event LeveledUp(
         address indexed owner, uint256 indexed tokenId, uint8 fromLevel, uint8 toLevel, uint256 newAmount, uint256 paid
     );
@@ -149,8 +154,9 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Lock guardians at the chosen levels.
     /// @param levels 0-based level per token (UI level - 1). Level 1 is free; a higher level costs
-    ///        its price, paid into the pool on top of the amount.
-    /// @param amounts must sit inside the chosen level's range for the token's tier.
+    ///        its price, paid into the pool on top of the amount (fees are not returned).
+    /// @param amounts must sit inside the chosen level's range for the token's tier. Returned in
+    ///        full when the lock closes.
     /// @dev Requires NFT approval (setApprovalForAll) and token allowance for sum(amounts + fees).
     function lock(uint256[] calldata tokenIds, uint256[] calldata amounts, uint8[] calldata levels)
         external
@@ -172,24 +178,28 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     /// @notice Start a new period on finished locks without moving the NFT, at newly chosen levels.
-    ///         Remaining rewards from the finished period are paid out first.
+    ///         Each finished lock closes first: its remaining rewards and its locked amount go back to
+    ///         the holder, then the new amount (and fee) is paid in.
     function renew(uint256[] calldata tokenIds, uint256[] calldata amounts, uint8[] calldata levels)
         external
         whenNotPaused
         nonReentrant
     {
-        (uint256 total, uint256 fees) = _quote(tokenIds, amounts, levels);
-        _collect(total, fees);
+        _quote(tokenIds, amounts, levels);
+        // one guardian at a time: a repeated id finds its fresh lock still running and reverts
         for (uint256 i; i < tokenIds.length; ++i) {
             uint256 id = tokenIds[i];
             _requireEndedLockOf(id);
-            IRewardPool(pool).settle(id);
+            IRewardPool(pool).close(id);
+            // the new payment lands before the new period's rewards are reserved
+            _collect(amounts[i], _tiers[baseTierOf(id)].levels[levels[i]].price);
             _openLock(id, amounts[i], levels[i], true);
         }
     }
 
     /// @notice Raise a running lock to a higher level and lock more.
     ///         Pays: (new level fee - current level fee) + (newAmount - locked amount), into the pool.
+    ///         The top-up is locked with the rest and returned when the lock closes; the fee is not.
     ///         Tribute earned so far is paid out first; the remaining days earn on `newAmount`.
     ///         The end date does not change. Only while the lock is running.
     /// @param newLevel 0-based target level, above the current one.
@@ -229,18 +239,19 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         emit LeveledUp(msg.sender, tokenId, fromLevel, newLevel, newAmount, topUp + feeDiff);
     }
 
-    /// @notice Pay out remaining rewards and return the NFT. Only after the period ends.
-    /// @dev Intentionally not pausable: holders can always get their guardian back.
+    /// @notice Return the NFT and the locked amount, and pay out remaining rewards. Only after the
+    ///         period ends.
+    /// @dev Intentionally not pausable: holders can always get their guardian and tokens back.
     function unlock(uint256[] calldata tokenIds) external nonReentrant {
         if (tokenIds.length == 0) revert EmptyInput();
         for (uint256 i; i < tokenIds.length; ++i) {
             uint256 id = tokenIds[i];
             _requireEndedLockOf(id);
-            IRewardPool(pool).settle(id);
+            (uint256 reward, uint256 stake) = IRewardPool(pool).close(id);
             delete _locks[id];
             _lockedBy[msg.sender].remove(id);
             _allLocked.remove(id);
-            emit Unlocked(msg.sender, id);
+            emit Unlocked(msg.sender, id, reward, stake);
             nft.transferFrom(address(this), msg.sender, id);
         }
         totalLocked -= tokenIds.length;
@@ -386,8 +397,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     /// @notice Emergency gate: hand locked guardians back to their holders before their period ends.
-    ///         Each holder is paid the full period's reward (it was reserved when the lock opened)
-    ///         and gets the NFT back. Works while paused. Holders' own unlock/claim keep working too.
+    ///         Each holder gets the NFT and the locked amount back, plus the full period's reward (it was
+    ///         reserved when the lock opened). Works while paused. Holders' own unlock/claim keep working too.
     function emergencyReturn(uint256[] calldata tokenIds) external onlyOwner nonReentrant {
         if (tokenIds.length == 0) revert EmptyInput();
         for (uint256 i; i < tokenIds.length; ++i) {
@@ -451,11 +462,11 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     function _emergencyReturn(uint256 id) internal {
         address holder = _locks[id].owner;
         if (holder == address(0)) revert NotLocked(id);
-        uint256 paid = IRewardPool(pool).settleFull(id);
+        (uint256 reward, uint256 stake) = IRewardPool(pool).closeFull(id);
         delete _locks[id];
         _lockedBy[holder].remove(id);
         _allLocked.remove(id);
-        emit EmergencyReturned(holder, id, paid);
+        emit EmergencyReturned(holder, id, reward, stake);
         nft.transferFrom(address(this), holder, id);
     }
 

@@ -22,6 +22,7 @@ import { LockAllDialog } from "./LockAllDialog";
 import { LockDialog } from "./LockDialog";
 import { Roster } from "./Roster";
 import { tierStyle } from "./TierBadge";
+import { Trust } from "./Trust";
 import { WalletButton } from "./WalletButton";
 
 type Modal = { kind: "lock" | "renew" | "levelup"; guardian: Guardian } | { kind: "lockall" } | null;
@@ -71,7 +72,7 @@ export function Keep() {
   };
   const unlock = async (id: bigint) => {
     noteReturned([id]); // shown in the wallet list as soon as ownerOf confirms it, before the explorer catches up
-    await send("Guardian unlocked", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
+    await send("Guardian and tokens returned", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
   };
 
   // Re-resolve the guardian on every render so dialogs see fresh level/allowance data after a tx.
@@ -113,7 +114,7 @@ export function Keep() {
               </>
             ) : (
               <>
-                Keep the vigil. <b>Claim your tribute.</b>
+                Lock tokens with your guardian, earn every day. <b>Take it all back when the lock ends.</b>
               </>
             )}
           </p>
@@ -174,18 +175,24 @@ export function Keep() {
             <span style={{ width: `${(Number(p.totalLocked ?? 0) / SUPPLY) * 100}%` }} />
           </div>
         </div>
-        <div className="stat stat-pool">
-          <div className="stat-label">Reward pool</div>
+        <div className="stat">
+          <div className="stat-label">Tokens locked</div>
           <div className="stat-value num">
-            <CountUp value={p.poolBalance} decimals={p.decimals} maxFrac={0} />
+            <CountUp value={p.totalStaked} decimals={p.decimals} maxFrac={0} />
             <small>{p.symbol}</small>
           </div>
+          <div className="stat-sub">
+            <a href="#trust">All returned at unlock</a>
+          </div>
         </div>
-        <div className="stat">
-          <div className="stat-label">Paid to holders</div>
+        <div className="stat stat-pool">
+          <div className="stat-label">Reward fund</div>
           <div className="stat-value num">
-            <CountUp value={p.totalPaidOut} decimals={p.decimals} />
+            <CountUp value={p.rewardFund} decimals={p.decimals} maxFrac={0} />
             <small>{p.symbol}</small>
+          </div>
+          <div className="stat-sub">
+            <CountUp value={p.totalPaidOut} decimals={p.decimals} maxFrac={0} /> paid to holders
           </div>
         </div>
         <div className="stat stat-gold">
@@ -260,23 +267,24 @@ export function Keep() {
             <span className="roman">I</span>
             <h3>Lock</h3>
             <p>
-              Pick a level and an amount inside its range. Level 1 is free; higher levels let you lock more for a fee. Every
-              token goes into the reward pool. Nothing is burned.
+              Pick a level and an amount inside its range. Your guardian and your tokens go into the Keep together. Level 1 is
+              free; higher levels let you lock more for a small fee.
             </p>
           </div>
           <div className="rite-step plate">
             <span className="roman">II</span>
             <h3>Keep vigil</h3>
             <p>
-              Your guardian stays in the Keep for {p.durationDays ?? "—"} days. Each full day earns a share of your lock as
-              tribute, paid from the pool. Unclaimed days carry over.
+              Your lock stays in the Keep for {p.durationDays ?? "—"} days. Each full day earns a share of it as tribute, paid
+              from the reward fund. Claim any time; unclaimed days carry over.
             </p>
           </div>
           <div className="rite-step plate">
             <span className="roman">III</span>
-            <h3>Claim, renew or unlock</h3>
+            <h3>Take it all back</h3>
             <p>
-              Claim any time. When the lock ends, renew without moving your guardian, or unlock it with any tribute still owed.
+              When the lock ends, unlock to get your guardian and <b>every token you locked</b> back, plus any tribute still
+              owed. Or renew to keep earning without moving your guardian.
             </p>
           </div>
         </div>
@@ -324,6 +332,8 @@ export function Keep() {
           more for the days left.
         </p>
       </section>
+
+      <Trust protocol={p} />
 
       {modal && modalGuardian && (modal.kind === "lock" || modal.kind === "renew") && (
         <LockDialog guardian={modalGuardian} protocol={p} mode={modal.kind} onClose={() => setModal(null)} onLocked={fresh.mark} />

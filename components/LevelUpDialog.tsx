@@ -78,6 +78,8 @@ export function LevelUpDialog({
   const checking = p.allowanceLocking === undefined;
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const short = p.balance !== undefined && p.balance < pay;
+  // the extra tribute is backed by the pool's free fund; of this payment only the fee joins it
+  const poolShort = p.poolAvailable !== undefined && extra > p.poolAvailable + feeDiff;
   const pending = g.pending ?? 0n;
   const endDate = new Date(l.end * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -189,17 +191,23 @@ export function LevelUpDialog({
               />
             </div>
 
-            <div className="breakdown num">
+            <div className="breakdown pay num">
               <div>
-                <span className="dim">Level fee difference</span>
-                <span>{fmtToken(feeDiff, p.decimals)}</span>
-              </div>
-              <div>
-                <span className="dim">Top-up</span>
+                <span>
+                  Top-up
+                  <span className="pay-tag pay-tag-ok">comes back at unlock</span>
+                </span>
                 <span>{fmtToken(topUp, p.decimals)}</span>
               </div>
               <div>
-                <span className="dim">You pay into the reward pool</span>
+                <span>
+                  Level fee difference
+                  {feeDiff > 0n && <span className="pay-tag">kept by the pool</span>}
+                </span>
+                <span>{fmtToken(feeDiff, p.decimals)}</span>
+              </div>
+              <div className="pay-sent">
+                <span className="dim">Leaves your wallet now</span>
                 <span>
                   {fmtToken(pay, p.decimals)} {p.symbol}
                   {usd !== undefined && <span className="faint"> ≈ {fmtUsd(Number(formatUnits(pay, p.decimals)) * usd)}</span>}
@@ -212,6 +220,12 @@ export function LevelUpDialog({
                 </span>
                 <span style={{ color: "var(--tier)" }}>
                   +{fmtToken(extra, p.decimals)} {p.symbol}
+                </span>
+              </div>
+              <div className="pay-back">
+                <span>Locked, back to you at unlock</span>
+                <span>
+                  {fmtToken(a, p.decimals)} {p.symbol}
                 </span>
               </div>
             </div>
@@ -230,11 +244,14 @@ export function LevelUpDialog({
 
             {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
             <ShortNotice protocol={p} pay={pay} />
+            {poolShort && (
+              <p className="notice notice-warn">The reward pool can&apos;t back this much extra tribute right now. Try a smaller top-up.</p>
+            )}
 
             {error && <p className="notice notice-danger">{error}</p>}
             <button
               className="gbtn gbtn-gloss gbtn-tier gbtn-block gbtn-lg"
-              disabled={!!busy || checking || !inRange || short || p.paused}
+              disabled={!!busy || checking || !inRange || short || poolShort || p.paused}
               onClick={act}
             >
               {busy || checking ? <span className="spinner" /> : <LevelUpIcon />}

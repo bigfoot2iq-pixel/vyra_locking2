@@ -1545,6 +1545,30 @@ a {
 
 select.input {
   font-family: var(--font-body), sans-serif;
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 32px;
+  background-color: var(--panel);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b9a1ff' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+
+select.input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The open list is drawn by the OS from these colors, not the translucent field. */
+select.input option {
+  background-color: var(--panel-2);
+  color: var(--ink);
+}
+
+select.input option:checked {
+  background-color: var(--violet-deep);
+  color: #fff;
 }
 
 .range {

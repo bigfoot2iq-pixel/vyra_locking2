@@ -96,6 +96,27 @@ function PoolCard({ p }: { p: Protocol }) {
   const wdAmt = toUnits(wd, p.decimals);
   const needApprove = depAmt !== undefined && (p.allowancePool ?? 0n) < depAmt;
 
+  // One click funds the pool: approve first when the allowance is short, then deposit right after.
+  async function fund() {
+    if (!depAmt) return;
+    if (needApprove) {
+      const ok = await send(`Step 1 of 2: ${p.symbol} approved`, {
+        address: p.token!,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [addresses.pool!, depAmt],
+      });
+      if (!ok) return;
+    }
+    const ok = await send(needApprove ? "Step 2 of 2: pool funded" : "Pool funded", {
+      address: addresses.pool!,
+      abi: vyraRewardPoolAbi,
+      functionName: "deposit",
+      args: [depAmt],
+    });
+    if (ok) setDep("");
+  }
+
   const bal = p.poolBalance ?? 0n;
   const paidIn = (p.totalLockPayments ?? 0n) + (p.totalLevelPayments ?? 0n);
   const reserved = p.totalReserved ?? 0n;
@@ -220,17 +241,14 @@ function PoolCard({ p }: { p: Protocol }) {
             </span>
             <input className="input" placeholder={p.symbol} value={dep} onChange={(e) => setDep(e.target.value)} />
           </div>
-          <button
-            className="btn btn-gold btn-sm"
-            disabled={!address || !depAmt || !!busy}
-            onClick={() =>
-              needApprove
-                ? send(`${p.symbol} approved`, { address: p.token!, abi: erc20Abi, functionName: "approve", args: [addresses.pool!, depAmt!] })
-                : send("Pool funded", { address: addresses.pool!, abi: vyraRewardPoolAbi, functionName: "deposit", args: [depAmt!] })
-            }
-          >
-            {needApprove ? "Approve" : "Deposit"}
+          <button className="btn btn-gold btn-sm" disabled={!address || !depAmt || !!busy} onClick={fund}>
+            {busy?.startsWith("Step 1") ? "Approving…" : busy?.includes("funded") ? "Depositing…" : needApprove ? "Approve & deposit" : "Deposit"}
           </button>
+          {needApprove && !busy && (
+            <p className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+              Two wallet confirmations: allow the pool to take {p.symbol}, then the deposit itself.
+            </p>
+          )}
         </div>
         <div>
           <div className="field">

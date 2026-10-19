@@ -14,7 +14,6 @@ export function PayBreakdown({
   tributeLabel,
   usd,
   accent = "var(--tier)",
-  lockedLabel = "Amount",
 }: {
   protocol: Protocol;
   locked: bigint;
@@ -26,7 +25,6 @@ export function PayBreakdown({
   tributeLabel: string;
   usd?: number;
   accent?: string;
-  lockedLabel?: string;
 }) {
   const sym = p.symbol;
   const paid = locked + fees;
@@ -35,19 +33,11 @@ export function PayBreakdown({
   return (
     <div className="breakdown pay num">
       <div>
-        <span>{lockedLabel}</span>
-        <span>
-          {fmtToken(locked, p.decimals)} {sym}
-        </span>
-      </div>
-      <div>
-        <span>Level fee</span>
-        <span>{fees > 0n ? `${fmtToken(fees, p.decimals)} ${sym}` : "free"}</span>
-      </div>
-      <div className="pay-sent">
         <span className="dim">
           You pay
-          <span className="pay-tag">goes to the pool</span>
+          <span className="pay-tag">
+            {fmtToken(locked, p.decimals)} + {fees > 0n ? `${fmtToken(fees, p.decimals)} fee` : "no fee"} · to the pool
+          </span>
         </span>
         <span>
           {fmtToken(paid, p.decimals)} {sym}

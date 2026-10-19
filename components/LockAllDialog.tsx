@@ -218,7 +218,7 @@ export function LockAllDialog({
         fees={fees}
         daily={daily}
         tribute={tribute}
-        tributeLabel={`${p.durationDays ?? "—"} days`}
+        tributeLabel={p.durationDays === 1 ? "1 day" : `${p.durationDays ?? "—"} days`}
         usd={usd}
         accent="var(--aurum)"
       />

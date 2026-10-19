@@ -3714,3 +3714,56 @@ a.gbtn {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ---------- compact dialogs: the lock flow fits on one screen without scrolling ---------- */
+
+.dialog {
+  padding: 20px 22px;
+}
+
+.dialog .dialog-head {
+  margin-bottom: 14px;
+}
+
+.dialog .dialog-head img {
+  width: 48px;
+  height: 48px;
+}
+
+.dialog .dialog-head h2 {
+  font-size: 1.2rem;
+}
+
+.dialog .field {
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.dialog .input {
+  padding: 9px 12px;
+}
+
+.dialog .level-tile {
+  padding: 7px 4px 6px;
+}
+
+.dialog .breakdown {
+  gap: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.dialog .pay-back {
+  margin: 0 -14px -10px;
+  padding: 8px 14px;
+}
+
+.dialog .notice {
+  padding: 9px 12px;
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+}
+
+.dialog .wallet-hint {
+  margin: 0 0 10px;
+}

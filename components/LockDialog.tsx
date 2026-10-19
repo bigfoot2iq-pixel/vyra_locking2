@@ -8,6 +8,7 @@ import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
 import { addresses } from "@/lib/env";
+import { tierOf } from "@/lib/tiers";
 import { bpsToPct, fmtToken, fmtUsd } from "@/lib/format";
 import { Dialog } from "./Dialog";
 import { LockIcon, RenewIcon } from "./icons";
@@ -15,7 +16,7 @@ import { useCeremony } from "./fx/Ceremony";
 import { useGuardianImage } from "./GuardianArt";
 import { PayBreakdown } from "./PayBreakdown";
 import { ShortNotice } from "./ShortNotice";
-import { TierBadge, tierStyle } from "./TierBadge";
+import { tierStyle } from "./TierBadge";
 import { WalletHint } from "./WalletHint";
 
 const BPS = 10_000n;
@@ -171,18 +172,16 @@ export function LockDialog({
   return (
     <Dialog
       title={`Guardian #${g.id.toString().padStart(4, "0")}`}
-      kicker={<>◆ {mode === "lock" ? "Lock" : "Renew lock"}</>}
+      kicker={
+        <>
+          ◆ {mode === "lock" ? "Lock" : "Renew lock"} · {tierOf(g.tier).name} · {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day
+        </>
+      }
       image={image}
       tier={g.tier}
       onClose={onClose}
     >
       <div style={tierStyle(g.tier) as CSSProperties}>
-        <div className="card-row" style={{ marginBottom: 14 }}>
-          <TierBadge tier={g.tier} className="tier-badge tier-badge-inline" />
-          <span className="faint" style={{ fontSize: "0.8rem" }}>
-            {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day on everything you pay
-          </span>
-        </div>
 
         <div className="field">
           <span className="field-label">Level</span>
@@ -259,7 +258,7 @@ export function LockDialog({
           fees={fee}
           daily={daily}
           tribute={total}
-          tributeLabel={`${days.toString()} days`}
+          tributeLabel={days === 1n ? "1 day" : `${days.toString()} days`}
         />
 
         {mode === "renew" && g.lock && unclaimed > 0n && (
@@ -287,7 +286,7 @@ export function LockDialog({
 
         {!checking && !blocked && !running && <WalletHint count={todo.length} oneTime={needNft} />}
         {!checking && !blocked && (todo.length > 1 || (running !== null && planned > 1)) && (
-          <div className="steps" style={{ margin: "18px 0" }}>
+          <div className="steps" style={{ margin: "10px 0 12px" }}>
             {steps.map((s) => {
               const done = !s.needed;
               const active = running === s.key;
@@ -309,9 +308,9 @@ export function LockDialog({
           {busy || checking ? <span className="spinner" /> : mode === "lock" ? <LockIcon /> : <RenewIcon />}
           {label}
         </button>
-        <p className="faint" style={{ fontSize: "0.76rem", textAlign: "center", marginTop: 12 }}>
-          Your guardian and tokens stay in the Keep for {days.toString()} days and can&apos;t leave early. Then unlock to
-          take both home.
+        <p className="faint" style={{ fontSize: "0.74rem", textAlign: "center", margin: "8px 0 0" }}>
+          Locked {days.toString()} {days === 1n ? "day" : "days"}, no early exit. Your guardian comes home after; what you
+          pay stays in the pool.
         </p>
       </div>
     </Dialog>

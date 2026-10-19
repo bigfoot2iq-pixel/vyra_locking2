@@ -66,7 +66,7 @@ export function LockDialog({
   const rate = BigInt(cfg?.dailyRateBps ?? 0);
   const a = amount ?? 0n;
   const pay = a + fee;
-  const daily = (a * rate) / BPS;
+  const daily = (pay * rate) / BPS; // the rate applies to the amount and the level fee together
   const total = daily * days;
 
   // Approvals made in this dialog count right away, even if the RPC hasn't caught up yet.
@@ -82,14 +82,14 @@ export function LockDialog({
   // Renewing never moves the NFT, so only new locks depend on the collection's allow-list.
   const blocked = mode === "lock" && p.keepAllowed === false;
   const unclaimed = g.pending ?? 0n;
-  // A renewal closes the finished lock first, in the same transaction: its amount and unclaimed tribute
-  // land in the wallet before the new amount is taken (when both are in the token the Keep uses now).
+  // A renewal closes the finished lock first, in the same transaction: its unclaimed tribute lands in
+  // the wallet before the new amount is taken (when it is in the token the Keep uses now).
   const sameToken = !!g.lock && !!p.token && g.lock.token.toLowerCase() === p.token.toLowerCase();
-  const credit = mode === "renew" && sameToken ? g.lock!.amount + unclaimed : 0n;
+  const credit = mode === "renew" && sameToken ? unclaimed : 0n;
   const need = pay > credit ? pay - credit : 0n;
   const short = p.balance !== undefined && p.balance < need;
-  // tribute is backed by the pool's free fund; of this payment only the level fee joins it
-  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + fee;
+  // tribute is backed by the pool's free fund, which this payment joins before the reserve is taken
+  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + pay;
 
   const usdOf = (v: bigint) => (usd !== undefined ? fmtUsd(Number(formatUnits(v, p.decimals)) * usd) : "");
 
@@ -180,7 +180,7 @@ export function LockDialog({
         <div className="card-row" style={{ marginBottom: 14 }}>
           <TierBadge tier={g.tier} className="tier-badge tier-badge-inline" />
           <span className="faint" style={{ fontSize: "0.8rem" }}>
-            {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} daily on every level
+            {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day on everything you pay
           </span>
         </div>
 
@@ -209,7 +209,7 @@ export function LockDialog({
 
         <div className="field">
           <label className="field-label" htmlFor="amount">
-            <span>Amount to lock</span>
+            <span>Amount to pay in</span>
             <span className="num">
               {fmtToken(min, p.decimals)} – {fmtToken(max, p.decimals)} {p.symbol}
             </span>
@@ -257,17 +257,17 @@ export function LockDialog({
           protocol={p}
           locked={a}
           fees={fee}
+          daily={daily}
           tribute={total}
-          tributeLabel={`${fmtToken(daily, p.decimals)}/day × ${days.toString()} days`}
+          tributeLabel={`${days.toString()} days`}
         />
 
-        {mode === "renew" && g.lock && (
+        {mode === "renew" && g.lock && unclaimed > 0n && (
           <p className="notice" style={{ marginTop: 0 }}>
             <span className="gem-sm" />
             <span>
-              Your {fmtToken(g.lock.amount, p.decimals)} {sameToken ? p.symbol : "tokens"} from the finished lock
-              {unclaimed > 0n ? ` and ${fmtToken(unclaimed, p.decimals)} of unclaimed tribute come` : " comes"} back to you
-              first, in the same transaction.
+              The {fmtToken(unclaimed, p.decimals)} {sameToken ? p.symbol : "tokens"} of unclaimed tribute from the finished
+              lock is paid to you first, in the same transaction.
             </span>
           </p>
         )}

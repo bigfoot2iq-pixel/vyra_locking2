@@ -18,7 +18,10 @@ export interface LockInfo {
   start: number;
   end: number;
   lockId: bigint;
+  /** Tokens paid into the pool for this period; they stay there. */
   amount: bigint;
+  /** Level fee paid for this period; tribute is earned on amount + fee. */
+  fee: bigint;
   /** Token this period was paid in; its rewards come in the same token. */
   token: Address;
 }
@@ -177,6 +180,7 @@ export function useGuardians() {
         end: Number(l.start) + l.durationDays * DAY,
         lockId: l.lockId,
         amount: l.amount,
+        fee: l.fee,
         token: l.token,
       };
       g.pending = pendingAmounts[i];

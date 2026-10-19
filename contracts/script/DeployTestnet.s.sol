@@ -10,7 +10,7 @@ import {MockVyraNFT} from "../src/mocks/MockVyraNFT.sol";
 import {MockToken} from "../src/mocks/MockToken.sol";
 
 /// @notice Testnet / local setup: mocks, sample tiers + levels, the REAL collection rarity map,
-///         a 1,000-token reward fund seed (tribute is paid only from it, never from locked tokens),
+///         a 1,000-token reward fund seed (covers tiers paying over 100% per period),
 ///         and one guardian of each rarity minted to the deployer.
 ///         Deployer stays owner.
 ///   Optional env: NFT_BASE_URI

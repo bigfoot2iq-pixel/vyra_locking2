@@ -8,17 +8,15 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 
 /// @title VyraRewardPool
-/// @notice The single treasury of the Keep. Holders' locked tokens are held here and returned in
-///         full when their lock closes; level fees and deposits fund the daily rewards.
+/// @notice The single treasury of the Keep. Every lock payment (amount + level fee) and every deposit
+///         flows in here and stays here; holders' daily rewards are paid out of it.
 /// @dev Security model:
-///      - Tokens leave only three ways: reward claims (to the lock owner), closing a lock on
-///        unlock/renew/emergency return (rewards + the locked amount, to the lock owner), and
-///        `withdrawSurplus` by the owner.
-///      - A lock's amount is held in `stakedOf` until the lock closes, and its full-period reward is
-///        reserved when it opens. Rewards are backed only by what is neither staked nor reserved
-///        (deposits and level fees), never by holders' locked tokens. The owner can only withdraw
-///        that same free part, so even a compromised owner key cannot take locked tokens or
-///        rewards already promised to holders.
+///      - Tokens leave only three ways: reward claims (to the lock owner), settlement on
+///        unlock/renew/emergency return (to the lock owner), and `withdrawSurplus` by the owner.
+///      - A lock earns `(amount + fee) * rateBps` per day. Its full-period reward is reserved when
+///        it opens; a lock cannot open unless the free balance covers it, and the owner can only
+///        withdraw what is NOT reserved. So even a compromised owner key cannot take rewards
+///        already promised to holders.
 ///      - The locking contract is wired once and can never be changed.
 ///      - The payment token can be switched on the locking contract. Every lock remembers the token
 ///        it was paid in, and the pool keeps reserves and stats per token, so a switch never
@@ -31,10 +29,6 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     IVyraLocking public locking;
     /// @notice Rewards promised to open locks and not yet paid out, per token.
     mapping(IERC20 token => uint256) public reservedOf;
-    /// @notice Holders' locked amounts held for open locks, returned when each lock closes, per token.
-    mapping(IERC20 token => uint256) public stakedOf;
-    /// @notice Every locked amount ever handed back to its holder, per token.
-    mapping(IERC20 token => uint256) public returnedOf;
     /// @notice Every reward ever paid to holders, per token.
     mapping(IERC20 token => uint256) public paidOutOf;
     /// @notice Tokens added through `deposit` (owner seed, donations), per token.
@@ -51,7 +45,6 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         address indexed owner, uint256 indexed tokenId, uint64 indexed lockId, uint16 daysPaid, uint256 amount
     );
     event Released(uint256 indexed tokenId, uint64 indexed lockId, uint256 amount);
-    event StakeReturned(address indexed owner, uint256 indexed tokenId, uint64 indexed lockId, uint256 amount);
     event SurplusWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error LockingAlreadySet();
@@ -85,33 +78,23 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         return token().balanceOf(address(this));
     }
 
-    /// @notice Tokens neither locked by holders nor promised as rewards, in the current token: what
-    ///         new locks' rewards draw on and what the owner may withdraw.
+    /// @notice Tokens not promised to anyone, in the current token: what new locks' rewards draw on
+    ///         and what the owner may withdraw.
     function available() public view returns (uint256) {
         return availableOf(token());
     }
 
     /// @notice Free balance of any token (an old payment token, or one sent by mistake): the balance
-    ///         minus holders' locked amounts and promised rewards.
+    ///         minus promised rewards.
     function availableOf(IERC20 t) public view returns (uint256) {
         uint256 bal = t.balanceOf(address(this));
-        uint256 owed = reservedOf[t] + stakedOf[t];
+        uint256 owed = reservedOf[t];
         return bal > owed ? bal - owed : 0;
     }
 
     /// @notice Rewards promised in the current token (zero until it is set).
     function totalReserved() external view returns (uint256) {
         return reservedOf[_current()];
-    }
-
-    /// @notice Holders' locked amounts held in the current token.
-    function totalStaked() external view returns (uint256) {
-        return stakedOf[_current()];
-    }
-
-    /// @notice Locked amounts handed back to holders in the current token.
-    function totalReturned() external view returns (uint256) {
-        return returnedOf[_current()];
     }
 
     /// @notice Rewards paid in the current token.
@@ -129,8 +112,9 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         return withdrawnOf[_current()];
     }
 
+    /// @notice Daily reward: the lock's rate on everything paid for it, amount + level fee.
     function rewardPerDay(IVyraLocking.Lock memory l) public pure returns (uint256) {
-        return uint256(l.amount) * l.rateBps / BPS;
+        return (uint256(l.amount) + l.fee) * l.rateBps / BPS;
     }
 
     function maxReward(IVyraLocking.Lock memory l) public pure returns (uint256) {
@@ -197,28 +181,25 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // Locking hooks
     // ------------------------------------------------------------------
 
-    /// @notice Hold a freshly opened lock's amount and reserve its full-period reward. The amount was
-    ///         paid in just before, but the reward must come out of the free balance, never out of it.
+    /// @notice Reserve a freshly opened lock's full-period reward. Its payment landed just before
+    ///         and is part of the free balance the reward is reserved from.
     function reserve(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
-        stakedOf[l.token] += l.amount;
         _reserve(tokenId, l, maxReward(l));
     }
 
-    /// @notice Release what a running lock holds: the reserve for its remaining days and its amount.
-    ///         Called (after `settle`) right before the lock's amount changes on a level-up.
+    /// @notice Release the reserve for a running lock's remaining days. Called (after `settle`)
+    ///         right before the lock's amount and fee change on a level-up.
     function release(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint256 remaining = rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]);
         reservedOf[l.token] -= remaining;
-        stakedOf[l.token] -= l.amount;
         emit Released(tokenId, l.lockId, remaining);
     }
 
-    /// @notice Hold a lock's (new) amount and reserve its remaining days at it. Called after a level-up.
+    /// @notice Reserve a lock's remaining days at its new amount and fee. Called after a level-up.
     function reserveRemaining(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
-        stakedOf[l.token] += l.amount;
         _reserve(tokenId, l, rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]));
     }
 
@@ -229,22 +210,20 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         if (reward > 0) l.token.safeTransfer(l.owner, reward);
     }
 
-    /// @notice Close a finished lock: pay out its remaining rewards and hand its locked amount back.
-    function close(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward, uint256 stake) {
+    /// @notice Close a finished lock: pay out its remaining rewards. Its payment stays in the pool.
+    function close(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         reward = _accrue(tokenId, l);
-        stake = _unstake(tokenId, l);
-        l.token.safeTransfer(l.owner, reward + stake);
+        if (reward > 0) l.token.safeTransfer(l.owner, reward);
     }
 
     /// @notice Close a lock early for the owner's emergency return: the whole period's remaining
-    ///         reward, days not yet elapsed included, plus the locked amount. Both were set aside when
-    ///         the lock opened, so the holder is never short-changed by an emergency return.
-    function closeFull(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward, uint256 stake) {
+    ///         reward, days not yet elapsed included. It was reserved when the lock opened, so the
+    ///         holder is never short-changed by an emergency return.
+    function closeFull(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         reward = _accrueTo(tokenId, l, l.durationDays);
-        stake = _unstake(tokenId, l);
-        l.token.safeTransfer(l.owner, reward + stake);
+        if (reward > 0) l.token.safeTransfer(l.owner, reward);
     }
 
     // ------------------------------------------------------------------
@@ -259,14 +238,13 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         emit LockingSet(locking_);
     }
 
-    /// @notice Withdraw current-token pool tokens that are neither locked by holders nor reserved.
+    /// @notice Withdraw current-token pool tokens that are not reserved for holders' rewards.
     function withdrawSurplus(address to, uint256 amount) external onlyOwner nonReentrant {
         _withdraw(token(), to, amount);
     }
 
     /// @notice Withdraw the unreserved balance of any token: what is left of an old payment token
-    ///         after a switch, or tokens sent here by mistake. Locked amounts and reserved rewards
-    ///         can never leave this way.
+    ///         after a switch, or tokens sent here by mistake. Reserved rewards can never leave this way.
     function withdrawSurplusOf(IERC20 t, address to, uint256 amount) external onlyOwner nonReentrant {
         _withdraw(t, to, amount);
     }
@@ -299,14 +277,6 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         if (needed > free) revert InsufficientPool(needed, free);
         reservedOf[l.token] += needed;
         emit Reserved(tokenId, l.lockId, needed);
-    }
-
-    /// @dev Stops holding `l`'s amount; the caller transfers it back to the holder.
-    function _unstake(uint256 tokenId, IVyraLocking.Lock memory l) internal returns (uint256 stake) {
-        stake = l.amount;
-        stakedOf[l.token] -= stake;
-        returnedOf[l.token] += stake;
-        emit StakeReturned(l.owner, tokenId, l.lockId, stake);
     }
 
     function _accrue(uint256 tokenId, IVyraLocking.Lock memory l) internal returns (uint256 amount) {

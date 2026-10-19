@@ -2,7 +2,7 @@
 
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
 import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
-import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { dailyTribute, maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { buyUrlFor } from "@/lib/env";
 import { bpsToPct, DAY, fmtClock, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
@@ -41,7 +41,8 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < first.minAmount ? buyUrlFor(p.token) : undefined;
   const owedDays = unclaimedDays(g, now);
   // Running-lock facts: today's day number, and tribute earned so far against the whole lock's total.
-  const daily = l ? (l.amount * BigInt(l.rateBps)) / 10_000n : 0n;
+  const daily = l ? dailyTribute(l.amount, l.fee, l.rateBps) : 0n;
+  const paidIn = l ? l.amount + l.fee : 0n;
   const daysDone = l ? Math.min(Math.max(0, Math.floor((now - l.start) / DAY)), l.durationDays) : 0;
   const dayNow = l ? Math.min(daysDone + 1, l.durationDays) : 0;
   const earned = daily * BigInt(daysDone);
@@ -77,14 +78,14 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
         {l ? (
           <>
             <div className="card-row">
-              <span className="dim">{ended ? "Back to you" : "Earning"}</span>
+              <span className="dim">{ended ? "Earned this lock" : `Earning ${bpsToPct(l.rateBps)} a day`}</span>
               <span className="card-row-end">
                 <span
                   className="num"
-                  title={`${fmtToken(l.amount, p.decimals)} ${p.symbol} locked at ${bpsToPct(l.rateBps)}/day, returned in full at unlock`}
+                  title={`${bpsToPct(l.rateBps)} a day on the ${fmtToken(paidIn, p.decimals)} ${p.symbol} paid in (amount + level fee)`}
                 >
                   {ended
-                    ? `${fmtToken(l.amount, p.decimals)} ${p.symbol}`
+                    ? `${fmtToken(lockTotal, p.decimals)} ${p.symbol}`
                     : `+${fmtToken(daily, p.decimals)} ${p.symbol}/day`}
                 </span>
                 <LevelPip level={l.level} label={false} />
@@ -92,10 +93,10 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             </div>
             {!ended && (
               <dl className="card-facts num">
-                <div title="Returned to you in full when you unlock">
-                  <dt>Locked</dt>
+                <div title="Amount + level fee paid into the pool; tribute is earned on all of it">
+                  <dt>Paid in</dt>
                   <dd>
-                    {fmtToken(l.amount, p.decimals)}
+                    {fmtToken(paidIn, p.decimals)}
                     <small>{p.symbol}</small>
                   </dd>
                 </div>
@@ -151,7 +152,11 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                   className="gbtn gbtn-stone gbtn-sm"
                   disabled={busy}
                   onClick={onUnlock}
-                  title={`Take your guardian and ${fmtToken(l.amount + (g.pending ?? 0n), p.decimals)} ${p.symbol} home`}
+                  title={
+                    g.pending && g.pending > 0n
+                      ? `Take your guardian and ${fmtToken(g.pending, p.decimals)} ${p.symbol} of tribute home`
+                      : "Take your guardian home"
+                  }
                 >
                   <UnlockIcon /> Unlock
                 </button>
@@ -180,7 +185,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                     className="gbtn gbtn-gloss gbtn-tier gbtn-sm card-levelup"
                     disabled={busy}
                     onClick={onLevelUp}
-                    title="Level up: lock more, earn more"
+                    title="Level up: pay in more, earn more"
                     aria-label="Level up"
                   >
                     <LevelUpIcon />
@@ -201,7 +206,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 </span>
                 <span className="card-pitch-sub">
                   {usd !== undefined && <b className="card-pitch-usd">{usdOf(earnUpTo, p.decimals, usd)} · </b>}
-                  {bpsToPct(cfg!.dailyRateBps)} a day for {p.durationDays} days
+                  {bpsToPct(cfg!.dailyRateBps)} a day on what you pay · {p.durationDays} days
                 </span>
               </div>
             )}

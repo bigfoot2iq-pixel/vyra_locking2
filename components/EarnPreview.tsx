@@ -57,7 +57,9 @@ export function EarnPreview({ protocol: p, usd }: { protocol: Protocol; usd: num
         </div>
       )}
       <p className="dim preview-note">
-        {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day for {p.durationDays ?? "—"} days, per guardian. Claim whenever you like.
+        {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day on everything you pay (amount + level fee) for {p.durationDays ?? "—"}{" "}
+        days
+        {cfg && p.durationDays ? `: ${bpsToPct(cfg.dailyRateBps * Number(p.durationDays))} per lock` : ""}. Claim whenever you like.
       </p>
       <WalletButton label="Connect to lock yours" />
     </div>

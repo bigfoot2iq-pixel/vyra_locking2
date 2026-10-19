@@ -4,7 +4,7 @@ import { useState } from "react";
 import { encodeFunctionData, erc20Abi, formatUnits, isAddress, parseUnits, type Abi, type Address } from "viem";
 import { useAccount, useReadContract } from "wagmi";
 import { useToast } from "@/components/Toaster";
-import { LEVEL_COUNT, maxTribute, useProtocol, type Protocol } from "@/hooks/useProtocol";
+import { LEVEL_COUNT, maxTribute, topLevel, useProtocol, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
@@ -97,17 +97,22 @@ function PoolCard({ p }: { p: Protocol }) {
   const needApprove = depAmt !== undefined && (p.allowancePool ?? 0n) < depAmt;
 
   const bal = p.poolBalance ?? 0n;
-  const staked = p.totalStaked ?? 0n;
+  const paidIn = (p.totalLockPayments ?? 0n) + (p.totalLevelPayments ?? 0n);
   const reserved = p.totalReserved ?? 0n;
   const free = p.poolAvailable ?? 0n;
   const pctOf = (v: bigint) => (bal > 0n ? Number((v * 1000n) / bal) / 10 : 0);
-  const stakedPct = pctOf(staked);
   const reservedPct = pctOf(reserved);
-  // the fund's own economy: fees and deposits in, tribute and owner withdrawals out (locked tokens pass through)
-  const net = (p.totalLevelPayments ?? 0n) - (p.totalPaidOut ?? 0n);
-  // tiers whose biggest single lock the free fund couldn't back right now
+  // the pool's own economy: holders' payments in, tribute out (deposits and withdrawals aside)
+  const net = paidIn - (p.totalPaidOut ?? 0n);
+  // tiers whose biggest single lock the free fund couldn't back right now; the lock's own payment
+  // joins the fund before its tribute is reserved, so only the part above it needs covering
   const uncovered = (p.tiers ?? [])
-    .map((t, i) => ({ i, need: maxTribute(t, p.durationDays) }))
+    .map((t, i) => {
+      const top = topLevel(t);
+      const need = maxTribute(t, p.durationDays);
+      const own = top >= 0 ? t.levels[top].maxAmount + t.levels[top].price : 0n;
+      return { i, need: need !== undefined && need > own ? need - own : need === undefined ? undefined : 0n };
+    })
     .filter((t) => t.need !== undefined && t.need > free);
   const fmt = (v: bigint | undefined) => fmtToken(v, p.decimals, 2);
   const usdOf = (v: bigint | undefined) =>
@@ -117,9 +122,10 @@ function PoolCard({ p }: { p: Protocol }) {
     <div className="admin-card plate wide">
       <h3>Reward pool</h3>
       <p>
-        Holders&apos; locked tokens are held here and go back to them at unlock. Tribute is paid only from the free fund: your
-        seed, deposits and level fees. Each lock&apos;s tribute is reserved when it starts. Only the free fund can back new
-        locks or be withdrawn by the owner; locked tokens and reserved tribute never can.
+        Every lock payment (amount + level fee) lands here and stays, next to your seed and deposits. Each day a lock pays
+        its tier&apos;s rate on amount + fee, and its full tribute is reserved when it starts. Only the free fund can back
+        new locks or be withdrawn by the owner; reserved tribute never can. Tiers paying over 100% per period need the
+        free fund to cover the excess.
       </p>
       {p.poolBalance === 0n && (
         <p className="notice notice-warn">The pool is empty. Add a {p.symbol} balance below so holders who lock can be paid.</p>
@@ -134,11 +140,11 @@ function PoolCard({ p }: { p: Protocol }) {
           <span className="faint num">{usdOf(bal)}</span>
         </div>
         <div>
-          <span className="stat-label">Locked by holders</span>
+          <span className="stat-label">Paid in by holders</span>
           <div className="pool-big num" style={{ color: "var(--ok)" }}>
-            {fmt(staked)}
+            {fmt(paidIn)}
           </div>
-          <span className="faint num">returned at unlock</span>
+          <span className="faint num">all time, kept by the pool</span>
         </div>
         <div>
           <span className="stat-label">Tribute reserved</span>
@@ -158,24 +164,19 @@ function PoolCard({ p }: { p: Protocol }) {
       <div
         className="pool-bar"
         role="img"
-        aria-label={`${stakedPct}% of the pool is locked by holders, ${reservedPct}% is reserved tribute`}
+        aria-label={`${reservedPct}% of the pool is reserved tribute`}
       >
-        <span className="pool-bar-staked" style={{ width: `${stakedPct}%` }} />
         <span className="pool-bar-reserved" style={{ width: `${reservedPct}%` }} />
       </div>
       <div className="card-row faint" style={{ fontSize: "0.76rem", marginTop: 6 }}>
-        <span>
-          ◆ locked {stakedPct}% · reserved {reservedPct}%
-        </span>
-        <span>free {Math.round((100 - stakedPct - reservedPct) * 10) / 10}% ◆</span>
+        <span>◆ reserved {reservedPct}%</span>
+        <span>free {Math.round((100 - reservedPct) * 10) / 10}% ◆</span>
       </div>
 
       <div className="pool-flows">
         <dl className="kv num">
-          <dt>Tokens locked (all time)</dt>
+          <dt>Lock amounts in</dt>
           <dd>{fmt(p.totalLockPayments)}</dd>
-          <dt>Locked tokens returned</dt>
-          <dd>{fmt(p.totalReturned)}</dd>
           <dt>Level fees in</dt>
           <dd>{fmt(p.totalLevelPayments)}</dd>
           <dt>Deposits in (seed, donations)</dt>
@@ -186,7 +187,7 @@ function PoolCard({ p }: { p: Protocol }) {
           <dd>{fmt(p.totalPaidOut)}</dd>
           <dt>Withdrawn by owner</dt>
           <dd>{fmt(p.totalWithdrawn)}</dd>
-          <dt>Level fees − tribute paid</dt>
+          <dt>Holder payments − tribute paid</dt>
           <dd style={{ color: net >= 0n ? "var(--ok)" : "var(--danger)" }}>
             {net >= 0n ? "+" : "−"}
             {fmt(net >= 0n ? net : -net)}
@@ -197,15 +198,15 @@ function PoolCard({ p }: { p: Protocol }) {
       {uncovered.length === 0 ? (
         <p className="notice" style={{ marginTop: 16 }}>
           <span className="gem-sm" /> The free fund can back the biggest single lock in every tier. Every lock&apos;s tribute
-          draws it down; level fees and deposits top it up.
+          above 100% draws it down; every new payment and deposit tops it up.
         </p>
       ) : (
         <p className="notice notice-warn" style={{ marginTop: 16 }}>
           <span className="gem-sm" />
           <span>
             The free fund can&apos;t back a top-level lock in {uncovered.map((t) => TIERS[t.i].name).join(", ")} (needs up to{" "}
-            {fmt(uncovered.reduce((m, t) => (t.need! > m ? t.need! : m), 0n))} {p.symbol}). Holders&apos; locked tokens
-            never pay tribute, so deposit more {p.symbol} to keep those locks open.
+            {fmt(uncovered.reduce((m, t) => (t.need! > m ? t.need! : m), 0n))} {p.symbol} beyond the lock&apos;s own payment), so
+            deposit more {p.symbol} to keep those locks open.
           </span>
         </p>
       )}
@@ -540,8 +541,8 @@ function EmergencyCard({ p }: { p: Protocol }) {
     <div className="admin-card plate wide">
       <h3>Emergency gate</h3>
       <p>
-        Send locked guardians straight back to their holders before their period ends. Each holder gets their locked tokens
-        back and the full period&apos;s reward, which the pool reserved when the lock opened, so nobody loses anything. Works
+        Send locked guardians straight back to their holders before their period ends. Each holder gets the full period&apos;s
+        reward, which the pool reserved when the lock opened, so nobody loses tribute. Works
         while paused; pause first if new locks should stop too.
       </p>
       <div className="admin-actions" style={{ marginBottom: 14 }}>

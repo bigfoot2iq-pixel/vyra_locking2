@@ -10,12 +10,13 @@ interface IVyraLocking {
         address owner;
         uint8 tier; // rarity tier of the NFT (0 Common, 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary)
         uint8 level; // level used for this period (0-based; UI shows level + 1)
-        uint16 rateBps; // daily reward, in basis points of `amount`
+        uint16 rateBps; // daily reward, in basis points of `amount + fee`
         uint16 durationDays;
         uint40 start;
         uint64 lockId; // unique per lock/renew; keys the pool's claim ledger
-        uint128 amount; // tokens locked for this period, held by the pool and returned when it closes
+        uint128 amount; // tokens paid into the pool for this period; they stay in the pool
         IERC20 token; // token this period was paid in; its rewards are paid in the same token
+        uint128 fee; // level fee paid for this period; earns tribute together with `amount`
     }
 
     function token() external view returns (IERC20);

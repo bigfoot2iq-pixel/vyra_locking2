@@ -67,9 +67,10 @@ export function LevelUpDialog({
   const rate = BigInt(l.rateBps);
   const elapsedDays = Math.min(Math.floor((now - l.start) / DAY), l.durationDays);
   const remaining = BigInt(l.durationDays - elapsedDays);
-  const oldDaily = (l.amount * rate) / BPS;
-  const newDaily = (a * rate) / BPS;
-  const extra = (newDaily - oldDaily) * remaining;
+  // tribute is the rate on amount + fee; after the level-up the fee is the new level's full price
+  const oldDaily = ((l.amount + l.fee) * rate) / BPS;
+  const newDaily = ((a + (target?.price ?? l.fee)) * rate) / BPS;
+  const extra = newDaily > oldDaily ? (newDaily - oldDaily) * remaining : 0n;
 
   // An approval made in this dialog counts right away, even if the RPC hasn't caught up yet.
   const [approved, setApproved] = useState(0n);
@@ -78,8 +79,8 @@ export function LevelUpDialog({
   const checking = p.allowanceLocking === undefined;
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const short = p.balance !== undefined && p.balance < pay;
-  // the extra tribute is backed by the pool's free fund; of this payment only the fee joins it
-  const poolShort = p.poolAvailable !== undefined && extra > p.poolAvailable + feeDiff;
+  // the extra tribute is backed by the pool's free fund, which this payment joins first
+  const poolShort = p.poolAvailable !== undefined && extra > p.poolAvailable + pay;
   const pending = g.pending ?? 0n;
   const endDate = new Date(l.end * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -137,7 +138,7 @@ export function LevelUpDialog({
         <div className="card-row" style={{ marginBottom: 14 }}>
           <TierBadge tier={l.tier} className="tier-badge tier-badge-inline" />
           <span className="faint" style={{ fontSize: "0.8rem" }}>
-            Locked: {fmtToken(l.amount, p.decimals)} {p.symbol} at Level {l.level + 1}
+            Paid in: {fmtToken(l.amount + l.fee, p.decimals)} {p.symbol} at Level {l.level + 1}
           </span>
         </div>
 
@@ -173,7 +174,7 @@ export function LevelUpDialog({
 
             <div className="field">
               <label className="field-label" htmlFor="amount">
-                <span>Total locked after level up</span>
+                <span>Total amount after level up</span>
                 <span className="num">
                   {fmtToken(min, p.decimals)} – {fmtToken(max, p.decimals)} {p.symbol}
                 </span>
@@ -187,27 +188,24 @@ export function LevelUpDialog({
                 value={Math.round(pct * 10)}
                 onChange={(e) => setInput(formatUnits(min + ((max - min) * BigInt(Number(e.target.value))) / 1000n, p.decimals))}
                 style={{ "--pct": `${pct}%` } as CSSProperties}
-                aria-label="Total locked"
+                aria-label="Total amount"
               />
             </div>
 
             <div className="breakdown pay num">
               <div>
-                <span>
-                  Top-up
-                  <span className="pay-tag pay-tag-ok">comes back at unlock</span>
-                </span>
+                <span>Top-up</span>
                 <span>{fmtToken(topUp, p.decimals)}</span>
               </div>
               <div>
-                <span>
-                  Level fee difference
-                  {feeDiff > 0n && <span className="pay-tag">kept by the pool</span>}
-                </span>
+                <span>Level fee difference</span>
                 <span>{fmtToken(feeDiff, p.decimals)}</span>
               </div>
               <div className="pay-sent">
-                <span className="dim">Leaves your wallet now</span>
+                <span className="dim">
+                  You pay
+                  <span className="pay-tag">goes to the pool</span>
+                </span>
                 <span>
                   {fmtToken(pay, p.decimals)} {p.symbol}
                   {usd !== undefined && <span className="faint"> ≈ {fmtUsd(Number(formatUnits(pay, p.decimals)) * usd)}</span>}
@@ -215,19 +213,19 @@ export function LevelUpDialog({
               </div>
               <div className="total">
                 <span>
-                  Tribute {fmtToken(oldDaily, p.decimals)} → {fmtToken(newDaily, p.decimals)}/day ({bpsToPct(rate)}) ·{" "}
-                  {remaining.toString()} days left
+                  Tribute {fmtToken(oldDaily, p.decimals)} → {fmtToken(newDaily, p.decimals)}/day ({bpsToPct(rate)} of
+                  amount + fee) · {remaining.toString()} days left
                 </span>
                 <span style={{ color: "var(--tier)" }}>
                   +{fmtToken(extra, p.decimals)} {p.symbol}
                 </span>
               </div>
-              <div className="pay-back">
-                <span>Locked, back to you at unlock</span>
-                <span>
-                  {fmtToken(a, p.decimals)} {p.symbol}
-                </span>
-              </div>
+              {pay > 0n && (
+                <div className="pay-back">
+                  <span>Extra tribute on what you pay now</span>
+                  <span>+{bpsToPct((extra * 10_000n) / pay)}</span>
+                </div>
+              )}
             </div>
 
             <p className="notice" style={{ marginBottom: 18 }}>

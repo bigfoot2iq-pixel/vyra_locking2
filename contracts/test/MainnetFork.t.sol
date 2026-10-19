@@ -119,8 +119,7 @@ contract MainnetForkTest is Test {
         uint256 poolBefore = TOKEN.balanceOf(address(POOL));
         _lock(ALICE, COMMON, 5e18, 0);
         assertEq(NFT.ownerOf(COMMON), address(LOCKING), "NFT held by locking");
-        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 5e18, "amount held by the pool");
-        assertEq(POOL.totalStaked(), 5e18);
+        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 5e18, "amount paid into the pool");
         assertEq(TOKEN.balanceOf(address(LOCKING)), 0, "locking never holds tokens");
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 1);
     }
@@ -213,7 +212,7 @@ contract MainnetForkTest is Test {
         assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 13e18 - 0.75e18);
 
         vm.warp(start + 7 days);
-        assertEq(POOL.pendingOf(COMMON), 4 * 0.75e18, "remaining 4 days at 15 VR x 5%");
+        assertEq(POOL.pendingOf(COMMON), 4 * 0.9e18, "remaining 4 days at (15 + 3 fee) x 5%");
     }
 
     function test_levelUpRejectsInvalidMoves() public {
@@ -244,8 +243,7 @@ contract MainnetForkTest is Test {
         vm.prank(ALICE);
         LOCKING.unlock(_one(UNCOMMON));
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18 + 10e18, "all 7 days paid and the 10 returned");
-        assertEq(POOL.totalStaked(), 0);
+        assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18, "all 7 days paid");
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 0);
     }
 
@@ -262,8 +260,8 @@ contract MainnetForkTest is Test {
         LOCKING.emergencyReturnAll(10);
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "alice's guardian back home");
         assertEq(NFT.ownerOf(LEGEND), BOB, "bob's guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18 + 10e18, "full period paid, amount returned");
-        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18 + 50e18, "full period paid, amount returned");
+        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18, "full period paid");
+        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18, "full period paid");
         assertEq(LOCKING.allLockedCount(), 0);
         assertEq(POOL.totalReserved(), 0);
     }
@@ -279,7 +277,7 @@ contract MainnetForkTest is Test {
         assertEq(NFT.ownerOf(COMMON), address(LOCKING));
         assertEq(LOCKING.lockOf(COMMON).level, 2);
         assertEq(
-            before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 7 * 0.25e18 - 5e18, "new payment minus old rewards and amount"
+            before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 7 * 0.25e18, "new payment minus old rewards"
         );
     }
 
@@ -333,8 +331,8 @@ contract MainnetForkTest is Test {
         LOCKING.setRarityWords(0, words);
     }
 
-    function test_ownerCannotWithdrawLockedTokensOrReservedRewards() public {
-        _lock(BOB, LEGEND, 100e18, 0); // holds Bob's 100, reserves 98 for Bob
+    function test_ownerCannotWithdrawReservedRewards() public {
+        _lock(BOB, LEGEND, 100e18, 0); // Bob pays 100, 98 reserved for him
 
         uint256 free = POOL.available();
         vm.prank(OWNER);
@@ -347,6 +345,6 @@ contract MainnetForkTest is Test {
         uint256 before = TOKEN.balanceOf(BOB);
         vm.prank(BOB);
         LOCKING.unlock(_one(LEGEND));
-        assertEq(TOKEN.balanceOf(BOB) - before, 98e18 + 100e18, "Bob still paid in full, and the 100 back");
+        assertEq(TOKEN.balanceOf(BOB) - before, 98e18, "Bob still paid in full");
     }
 }

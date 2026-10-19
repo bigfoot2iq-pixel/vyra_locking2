@@ -52,8 +52,6 @@ export function useProtocol() {
       { ...pool, functionName: "totalPaidOut" },
       { ...pool, functionName: "totalDeposited" },
       { ...pool, functionName: "totalWithdrawn" },
-      { ...pool, functionName: "totalStaked" },
-      { ...pool, functionName: "totalReturned" },
     ],
     query: { enabled: isConfigured, refetchInterval: 30_000 },
   });
@@ -97,7 +95,6 @@ export function useProtocol() {
   const t = tok.data;
   const poolBalance = t?.[5];
   const totalReserved = d?.[11];
-  const totalStaked = d?.[17];
 
   return {
     isLoading: core.isLoading || (tokenSet && tok.isLoading),
@@ -119,23 +116,15 @@ export function useProtocol() {
     totalPaidOut: d?.[14],
     totalDeposited: d?.[15],
     totalWithdrawn: d?.[16],
-    /** Holders' locked tokens the pool holds for them; they come back when each lock closes. */
-    totalStaked,
-    /** Locked tokens already handed back to holders. */
-    totalReturned: d?.[18],
     symbol: t?.[0] ?? "TOKEN",
     decimals: t?.[1] ?? 18,
     balance: t?.[2],
     allowanceLocking: t?.[3],
     allowancePool: t?.[4],
+    /** The whole pool pays tribute: every lock payment, level fee and deposit lands here. */
     poolBalance,
-    /** What pays tribute: the pool minus holders' locked tokens (promised rewards included). */
-    rewardFund: poolBalance !== undefined && totalStaked !== undefined ? sub(poolBalance, totalStaked) : undefined,
-    /** Free for new locks' tribute and owner withdrawals: neither locked by holders nor promised. */
-    poolAvailable:
-      poolBalance !== undefined && totalReserved !== undefined && totalStaked !== undefined
-        ? sub(poolBalance, totalReserved + totalStaked)
-        : undefined,
+    /** Free for new locks' tribute and owner withdrawals: not promised to a running lock. */
+    poolAvailable: poolBalance !== undefined && totalReserved !== undefined ? sub(poolBalance, totalReserved) : undefined,
     nftApproved: t?.[6],
     /** Whether the NFT collection lets the locking contract move guardians; undefined while loading. */
     keepAllowed,
@@ -156,9 +145,15 @@ export function topLevel(cfg: TierConfig | undefined): number {
   return top;
 }
 
-/** Most tribute one new lock in this tier can earn: the top level's max amount held for the full duration. */
+/** Daily tribute of a lock: its rate on everything paid for it, amount + level fee (as the pool computes it). */
+export function dailyTribute(amount: bigint, fee: bigint, rateBps: number | bigint): bigint {
+  return ((amount + fee) * BigInt(rateBps)) / 10_000n;
+}
+
+/** Most tribute one new lock in this tier can earn: the top level's max amount + fee for the full duration. */
 export function maxTribute(cfg: TierConfig | undefined, durationDays: number | bigint | undefined): bigint | undefined {
   const top = topLevel(cfg);
   if (!cfg || top < 0 || durationDays === undefined) return undefined;
-  return ((cfg.levels[top].maxAmount * BigInt(cfg.dailyRateBps)) / 10_000n) * BigInt(durationDays);
+  const lv = cfg.levels[top];
+  return dailyTribute(lv.maxAmount, lv.price, cfg.dailyRateBps) * BigInt(durationDays);
 }

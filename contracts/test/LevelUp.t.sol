@@ -23,21 +23,20 @@ contract LevelUpTest is Base {
         // alice: -27 paid, +1.5 earned days paid out
         assertEq(aliceBefore - token.balanceOf(alice), 27e18 - 1.5e18);
         assertEq(token.balanceOf(address(pool)) - poolBefore, 27e18 - 1.5e18);
-        // remaining 4 days at 1.5/day
-        assertEq(pool.totalReserved(), 6e18);
-        assertEq(pool.totalStaked(), 30e18, "the top-up is locked with the rest");
+        // remaining 4 days at 5% of (30 + 7 fee) = 1.85/day
+        assertEq(l.fee, 7e18);
+        assertEq(pool.totalReserved(), 7.4e18);
         assertEq(locking.totalLevelPayments(), 7e18);
         assertEq(locking.totalLockPayments(), 30e18);
 
         vm.warp(block.timestamp + 4 days);
-        assertEq(pool.pendingOf(COMMON_ID), 6e18);
+        assertEq(pool.pendingOf(COMMON_ID), 7.4e18);
         aliceBefore = token.balanceOf(alice);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - aliceBefore, 6e18 + 30e18, "all 30 come back");
+        assertEq(token.balanceOf(alice) - aliceBefore, 7.4e18, "only the tribute, the payment stays in the pool");
         assertEq(pool.totalReserved(), 0);
-        assertEq(pool.totalStaked(), 0);
-        assertEq(pool.totalPaidOut(), 7.5e18);
+        assertEq(pool.totalPaidOut(), 8.9e18);
     }
 
     function test_levelUp_paysOnlyTheFeeDifference() public {
@@ -127,7 +126,7 @@ contract LevelUpTest is Base {
         locking.levelUp(COMMON_ID, 1, 20e18);
         locking.levelUp(COMMON_ID, 3, 40e18);
         vm.stopPrank();
-        assertEq(pool.totalReserved(), 14e18, "7 days at 2/day");
+        assertEq(pool.totalReserved(), 18.2e18, "7 days at 5% of (40 + 12 fee)");
         assertEq(locking.totalLevelPayments(), 12e18);
     }
 }

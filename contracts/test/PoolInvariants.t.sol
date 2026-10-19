@@ -166,8 +166,8 @@ contract Handler is Test {
         pool.withdrawSurplusOf(t, owner, bound(amount, 1, free));
     }
 
-    /// The owner tops the reward fund back up (locked tokens never back tribute, so a drained fund
-    /// blocks new locks until someone deposits).
+    /// The owner tops the reward fund back up (a drained fund blocks locks paying over 100%
+    /// until someone deposits).
     function ownerDeposit(uint256 amount) external {
         MockToken t = MockToken(address(locking.token()));
         amount = bound(amount, 1e18, 500e18);
@@ -215,11 +215,11 @@ contract PoolInvariants is Base {
         return [token, handler.other()];
     }
 
-    /// The pool always holds every locked amount plus every promised reward, in every token.
-    function invariant_poolCoversLockedAndReserved() public view {
+    /// The pool always holds at least everything it has promised, in every token.
+    function invariant_poolCoversReserved() public view {
         MockToken[2] memory ts = _tokens();
         for (uint256 i; i < 2; ++i) {
-            assertGe(ts[i].balanceOf(address(pool)), pool.reservedOf(ts[i]) + pool.stakedOf(ts[i]));
+            assertGe(ts[i].balanceOf(address(pool)), pool.reservedOf(ts[i]));
         }
     }
 
@@ -231,24 +231,21 @@ contract PoolInvariants is Base {
         }
     }
 
-    /// Each token's reserve equals the unpaid rewards of the open locks paid in it, and its stake
-    /// equals their locked amounts.
+    /// Each token's reserve equals the unpaid rewards of the open locks paid in it, and every lock
+    /// earns on its amount plus the fee of its level.
     function invariant_reservesMatchLocks() public view {
         MockToken[2] memory ts = _tokens();
         uint256 n = locking.allLockedCount();
         uint256[] memory all = locking.allLockedTokens(0, n);
         uint256[2] memory owed;
-        uint256[2] memory staked;
         for (uint256 i; i < n; ++i) {
             VyraLocking.Lock memory l = locking.lockOf(all[i]);
             uint256 left = pool.rewardPerDay(l) * (l.durationDays - pool.claimedDays(l.lockId));
-            uint256 k = address(l.token) == address(ts[0]) ? 0 : 1;
-            owed[k] += left;
-            staked[k] += l.amount;
+            owed[address(l.token) == address(ts[0]) ? 0 : 1] += left;
+            assertEq(pool.rewardPerDay(l), (uint256(l.amount) + l.fee) * l.rateBps / 10_000);
         }
         for (uint256 i; i < 2; ++i) {
             assertEq(pool.reservedOf(ts[i]), owed[i]);
-            assertEq(pool.stakedOf(ts[i]), staked[i], "stake matches the open locks' amounts");
         }
     }
 
@@ -269,7 +266,7 @@ contract PoolInvariants is Base {
         for (uint256 i; i < 2; ++i) {
             MockToken t = ts[i];
             uint256 inflow = pool.depositedOf(t) + locking.lockPaymentsOf(t) + locking.levelPaymentsOf(t);
-            uint256 outflow = pool.paidOutOf(t) + pool.withdrawnOf(t) + pool.returnedOf(t);
+            uint256 outflow = pool.paidOutOf(t) + pool.withdrawnOf(t);
             assertEq(t.balanceOf(address(pool)), inflow - outflow);
         }
     }

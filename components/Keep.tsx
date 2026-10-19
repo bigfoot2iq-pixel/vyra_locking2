@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Poin
 import { useAccount } from "wagmi";
 import { useChainNow } from "@/hooks/useChainNow";
 import { noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
-import { maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
+import { dailyTribute, maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
@@ -45,7 +45,7 @@ export function Keep() {
   const owedDays = claimable.reduce((n, g) => n + (unclaimedDays(g, now) ?? 0), 0);
   const running = gs.locked.filter((g) => g.lock && now < g.lock.end);
   // Tribute the wallet's running locks earn per day: the number that grows with every new lock.
-  const dailyEarn = running.reduce((a, g) => a + (g.lock!.amount * BigInt(g.lock!.rateBps)) / 10_000n, 0n);
+  const dailyEarn = running.reduce((a, g) => a + dailyTribute(g.lock!.amount, g.lock!.fee, g.lock!.rateBps), 0n);
   const nextTribute = running.reduce<number | undefined>((soonest, g) => {
     const t = g.lock!.start + (Math.floor((now - g.lock!.start) / DAY) + 1) * DAY;
     return soonest === undefined || t < soonest ? t : soonest;
@@ -72,7 +72,7 @@ export function Keep() {
   };
   const unlock = async (id: bigint) => {
     noteReturned([id]); // shown in the wallet list as soon as ownerOf confirms it, before the explorer catches up
-    await send("Guardian and tokens returned", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
+    await send("Guardian returned", { address: addresses.locking!, abi: vyraLockingAbi, functionName: "unlock", args: [[id]] });
   };
 
   // Re-resolve the guardian on every render so dialogs see fresh level/allowance data after a tx.
@@ -176,19 +176,27 @@ export function Keep() {
           </div>
         </div>
         <div className="stat">
-          <div className="stat-label">Tokens locked</div>
+          <div className="stat-label">Tokens paid in</div>
           <div className="stat-value num">
-            <CountUp value={p.totalStaked} decimals={p.decimals} maxFrac={0} />
+            <CountUp
+              value={
+                p.totalLockPayments === undefined || p.totalLevelPayments === undefined
+                  ? undefined
+                  : p.totalLockPayments + p.totalLevelPayments
+              }
+              decimals={p.decimals}
+              maxFrac={0}
+            />
             <small>{p.symbol}</small>
           </div>
           <div className="stat-sub">
-            <a href="#trust">All returned at unlock</a>
+            <a href="#trust">All of it earns tribute daily</a>
           </div>
         </div>
         <div className="stat stat-pool">
           <div className="stat-label">Reward fund</div>
           <div className="stat-value num">
-            <CountUp value={p.rewardFund} decimals={p.decimals} maxFrac={0} />
+            <CountUp value={p.poolBalance} decimals={p.decimals} maxFrac={0} />
             <small>{p.symbol}</small>
           </div>
           <div className="stat-sub">
@@ -267,24 +275,24 @@ export function Keep() {
             <span className="roman">I</span>
             <h3>Lock</h3>
             <p>
-              Pick a level and an amount inside its range. Your guardian and your tokens go into the Keep together. Level 1 is
-              free; higher levels let you lock more for a small fee.
+              Pick a level and an amount inside its range. Your guardian goes into the Keep and your tokens go to the reward
+              pool. Level 1 is free; higher levels let you pay in more for a small fee.
             </p>
           </div>
           <div className="rite-step plate">
             <span className="roman">II</span>
             <h3>Keep vigil</h3>
             <p>
-              Your lock stays in the Keep for {p.durationDays ?? "—"} days. Each full day earns a share of it as tribute, paid
-              from the reward fund. Claim any time; unclaimed days carry over.
+              Your lock runs for {p.durationDays ?? "—"} days. Every full day pays your rarity&apos;s rate on{" "}
+              <b>everything you paid</b>, amount and level fee together. Claim any time; unclaimed days carry over.
             </p>
           </div>
           <div className="rite-step plate">
             <span className="roman">III</span>
-            <h3>Take it all back</h3>
+            <h3>Bring it home</h3>
             <p>
-              When the lock ends, unlock to get your guardian and <b>every token you locked</b> back, plus any tribute still
-              owed. Or renew to keep earning without moving your guardian.
+              When the lock ends, unlock to get your guardian back with any tribute still owed. Or renew to keep earning
+              without moving your guardian.
             </p>
           </div>
         </div>

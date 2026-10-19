@@ -3709,13 +3709,6 @@ a.gbtn {
   display: flex;
 }
 
-.pool-bar-staked {
-  display: block;
-  height: 100%;
-  background: color-mix(in srgb, var(--ok) 70%, #000);
-  transition: width 0.8s var(--ease);
-}
-
 @media (max-width: 720px) {
   .pool-hero-4 {
     grid-template-columns: repeat(2, 1fr);

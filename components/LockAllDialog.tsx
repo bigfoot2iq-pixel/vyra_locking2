@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, erc721Abi } from "viem";
 import type { Guardian } from "@/hooks/useGuardians";
-import { maxTribute, type Protocol } from "@/hooks/useProtocol";
+import { dailyTribute, maxTribute, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -18,8 +18,6 @@ import { PayBreakdown } from "./PayBreakdown";
 import { ShortNotice } from "./ShortNotice";
 import { tierStyle } from "./TierBadge";
 import { WalletHint } from "./WalletHint";
-
-const BPS = 10_000n;
 
 type StepKey = "nft" | "token" | "act";
 
@@ -56,14 +54,16 @@ export function LockAllDialog({
     const level = levels[key] ?? 0;
     const lv = cfg.levels[level];
     const amount = lv.maxAmount;
-    const tribute = ((amount * BigInt(cfg.dailyRateBps)) / BPS) * BigInt(p.durationDays ?? 0);
-    return { g, key, level, amount, fee: lv.price, tribute, on: picked.has(key) };
+    const daily = dailyTribute(amount, lv.price, cfg.dailyRateBps);
+    const tribute = daily * BigInt(p.durationDays ?? 0);
+    return { g, key, level, amount, fee: lv.price, daily, tribute, on: picked.has(key) };
   });
   const chosen = rows.filter((r) => r.on);
   const sum = (f: (r: (typeof rows)[number]) => bigint) => chosen.reduce((a, r) => a + f(r), 0n);
   const locked = sum((r) => r.amount);
   const fees = sum((r) => r.fee);
   const pay = locked + fees;
+  const daily = sum((r) => r.daily);
   const tribute = sum((r) => r.tribute);
   const bestUpside = rows.reduce((a, r) => a + (maxTribute(p.tiers?.[r.g.tier], p.durationDays) ?? 0n), 0n);
   const lead = [...chosen].sort((a, b) => b.g.tier - a.g.tier)[0]?.g ?? lockable[0];
@@ -81,8 +81,8 @@ export function LockAllDialog({
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const blocked = p.keepAllowed === false;
   const short = p.balance !== undefined && p.balance < pay;
-  // tribute is backed by the pool's free fund; of this payment only the level fees join it
-  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable + fees;
+  // tribute is backed by the pool's free fund, which this payment joins before the reserve is taken
+  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable + pay;
 
   const steps: { key: StepKey; label: string; needed: boolean }[] = [
     { key: "nft", label: "Let the Keep hold your guardians", needed: needNft },
@@ -162,8 +162,8 @@ export function LockAllDialog({
   return (
     <Dialog title={`Lock ${plural(lockable.length, "guardian")}`} kicker={<>◆ Lock all</>} image={leadImage} onClose={onClose}>
       <p className="dim" style={{ margin: "-8px 0 16px", fontSize: "0.84rem" }}>
-        Each guardian locks its level&apos;s full amount, and every token comes back when you unlock. Level 1 has no fee.
-        Higher levels earn more
+        Each guardian pays its level&apos;s full amount into the pool and earns its rarity&apos;s rate on amount + fee every
+        day. Level 1 has no fee. Higher levels earn more
         {bestUpside > 0n && <>, up to {fmtToken(bestUpside, p.decimals, 0)} {p.symbol} across all of them</>}.
       </p>
 
@@ -216,8 +216,9 @@ export function LockAllDialog({
         protocol={p}
         locked={locked}
         fees={fees}
+        daily={daily}
         tribute={tribute}
-        tributeLabel={`over ${p.durationDays ?? "—"} days`}
+        tributeLabel={`${p.durationDays ?? "—"} days`}
         usd={usd}
         accent="var(--aurum)"
       />

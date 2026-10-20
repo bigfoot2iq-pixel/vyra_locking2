@@ -36,10 +36,16 @@ contract Handler is Test {
         other.faucet(alice, 1_000_000e18);
         vm.prank(alice);
         other.approve(address(locking), type(uint256).max);
-        // seed the second token too, so high-rate tiers can lock in it
-        other.faucet(owner, 100e18);
+        // every payout's tribute comes from the seed: fund enough for many locks and level-ups
+        token.faucet(owner, 5_000e18);
         vm.startPrank(owner);
-        other.approve(address(pool), 100e18);
+        token.approve(address(pool), 5_000e18);
+        pool.deposit(5_000e18);
+        vm.stopPrank();
+        // seed the second token too, deposited on the first switch to it
+        other.faucet(owner, 5_000e18);
+        vm.startPrank(owner);
+        other.approve(address(pool), 5_000e18);
         vm.stopPrank();
         for (uint256 i; i < 3; ++i) {
             actors[i] = address(uint160(0xA11CE + i));
@@ -183,7 +189,7 @@ contract Handler is Test {
         bool toOther = address(locking.token()) == address(token);
         vm.startPrank(owner);
         locking.setToken(toOther ? other : token);
-        if (toOther && pool.depositedOf(other) == 0) pool.deposit(100e18);
+        if (toOther && pool.depositedOf(other) == 0) pool.deposit(5_000e18);
         vm.stopPrank();
         ++switches;
     }
@@ -204,11 +210,11 @@ contract PoolInvariants is Base {
 
     /// Sanity: across a whole run, the fuzzer really locks (including paid levels).
     function afterInvariant() external view {
-        assertGt(handler.locks(), 0);
-        assertGt(handler.paidLevels(), 0);
-        assertGt(handler.levelUps(), 0);
-        assertGt(handler.emergencyReturns(), 0);
-        assertGt(handler.switches(), 0);
+        assertGt(handler.locks(), 0, "locks");
+        assertGt(handler.paidLevels(), 0, "paidLevels");
+        assertGt(handler.levelUps(), 0, "levelUps");
+        assertGt(handler.emergencyReturns(), 0, "emergencyReturns");
+        assertGt(handler.switches(), 0, "switches");
     }
 
     function _tokens() internal view returns (MockToken[2] memory) {
@@ -231,8 +237,8 @@ contract PoolInvariants is Base {
         }
     }
 
-    /// Each token's reserve equals the unpaid rewards of the open locks paid in it, and every lock
-    /// earns on its amount plus the fee of its level.
+    /// Each token's reserve equals the unpaid payouts of the open locks paid in it, and no lock
+    /// can pay back less than its payment (amount + fee of its level).
     function invariant_reservesMatchLocks() public view {
         MockToken[2] memory ts = _tokens();
         uint256 n = locking.allLockedCount();
@@ -240,9 +246,8 @@ contract PoolInvariants is Base {
         uint256[2] memory owed;
         for (uint256 i; i < n; ++i) {
             VyraLocking.Lock memory l = locking.lockOf(all[i]);
-            uint256 left = pool.rewardPerDay(l) * (l.durationDays - pool.claimedDays(l.lockId));
-            owed[address(l.token) == address(ts[0]) ? 0 : 1] += left;
-            assertEq(pool.rewardPerDay(l), (uint256(l.amount) + l.fee) * l.rateBps / 10_000);
+            owed[address(l.token) == address(ts[0]) ? 0 : 1] += pool.remainingOf(all[i]);
+            assertGe(pool.maxReward(l), uint256(l.amount) + l.fee);
         }
         for (uint256 i; i < 2; ++i) {
             assertEq(pool.reservedOf(ts[i]), owed[i]);

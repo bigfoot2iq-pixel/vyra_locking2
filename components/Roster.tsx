@@ -72,7 +72,7 @@ export function Roster({
     { id: "all", label: "All", count: total },
     { id: "idle", label: "Idle", count: idle.length, hidden: idle.length === 0 },
     { id: "locked", label: "Locked", count: locked.length },
-    { id: "due", label: "Tribute due", count: due.length, hidden: due.length === 0 },
+    { id: "due", label: "Ready to claim", count: due.length, hidden: due.length === 0 },
   ];
 
   const shown =
@@ -115,13 +115,13 @@ export function Roster({
           </h2>
           <p className="lore">
             {isLoading || total === 0 ? (
-              "Locked guardians earn tribute every day, on their own."
+              "Locked guardians pay out every day, on their own."
             ) : idle.length > 0 ? (
               <>
                 {plural(idle.length, "guardian")} {idle.length === 1 ? "is" : "are"} idle.{" "}
                 {idleUpside > 0n && (
                   <b className="roster-upside">
-                    Lock {idle.length === 1 ? "it" : "them"} to earn up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}
+                    Lock {idle.length === 1 ? "it" : "them"} to earn up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol} profit
                     {usd !== undefined && <span className="roster-usd"> ({usdOf(idleUpside, p.decimals, usd)})</span>}.
                   </b>
                 )}

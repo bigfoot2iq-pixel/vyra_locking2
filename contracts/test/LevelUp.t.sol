@@ -9,8 +9,9 @@ import {Base} from "./Base.t.sol";
 /// Leveling up a running lock: Common 5%/day, L1 1-10 free, L2 11-20 fee 3, L3 21-30 fee 7, L4 31-40 fee 12.
 contract LevelUpTest is Base {
     function test_levelUp_settlesThenEarnsOnNewAmount() public {
-        lockAs(alice, COMMON_ID, 10e18, 0); // 0.5/day
+        lockAs(alice, COMMON_ID, 10e18, 0); // 13.5 over 7 days
         vm.warp(block.timestamp + 3 days);
+        uint256 earned = uint256(13.5e18) * 3 / 7;
 
         uint256 aliceBefore = token.balanceOf(alice);
         uint256 poolBefore = token.balanceOf(address(pool));
@@ -20,23 +21,28 @@ contract LevelUpTest is Base {
         IVyraLocking.Lock memory l = locking.lockOf(COMMON_ID);
         assertEq(l.level, 2);
         assertEq(l.amount, 30e18);
-        // alice: -27 paid, +1.5 earned days paid out
-        assertEq(aliceBefore - token.balanceOf(alice), 27e18 - 1.5e18);
-        assertEq(token.balanceOf(address(pool)) - poolBefore, 27e18 - 1.5e18);
-        // remaining 4 days at 5% of (30 + 7 fee) = 1.85/day
+        // alice: -27 paid, + the 3 earned days paid out
+        assertEq(aliceBefore - token.balanceOf(alice), 27e18 - earned);
+        assertEq(token.balanceOf(address(pool)) - poolBefore, 27e18 - earned);
+        // what was left of the 13.5, plus the 27 back with 4 days at 5% on it (5.4)
         assertEq(l.fee, 7e18);
-        assertEq(pool.totalReserved(), 7.4e18);
+        assertEq(pool.totalReserved(), 13.5e18 - earned + 32.4e18);
         assertEq(locking.totalLevelPayments(), 7e18);
         assertEq(locking.totalLockPayments(), 30e18);
 
         vm.warp(block.timestamp + 4 days);
-        assertEq(pool.pendingOf(COMMON_ID), 7.4e18);
+        assertEq(pool.pendingOf(COMMON_ID), 45.9e18 - earned);
         aliceBefore = token.balanceOf(alice);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - aliceBefore, 7.4e18, "only the tribute, the payment stays in the pool");
+        assertEq(token.balanceOf(alice) - aliceBefore, 45.9e18 - earned);
         assertEq(pool.totalReserved(), 0);
-        assertEq(pool.totalPaidOut(), 8.9e18);
+        // 37 paid back + tribute 3.5 (10 for 7 days) + 5.4 (27 for 4 days)
+        assertEq(pool.totalPaidOut(), 45.9e18);
+        (uint128 total, uint16 from, uint128 before) = pool.scheduleOf(l.lockId);
+        assertEq(from, 3);
+        assertEq(before, earned, "the 3 days paid before the level-up");
+        assertEq(uint256(before) + total, 45.9e18, "the lock's whole payout");
     }
 
     function test_levelUp_paysOnlyTheFeeDifference() public {
@@ -85,9 +91,8 @@ contract LevelUpTest is Base {
 
     function test_levelUp_amountRules() public {
         // force a config where L3 min sits below the locked amount, to hit the "not below locked" rule
-        VyraLocking.TierConfig memory t = tier(
-            500, [uint128(1), 11, 1, 31, 41], [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 7, 12, 20]
-        );
+        VyraLocking.TierConfig memory t =
+            tier(500, [uint128(1), 11, 1, 31, 41], [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 7, 12, 20]);
         vm.prank(owner);
         locking.setTierConfig(0, t);
         lockAs(alice, COMMON_ID, 18e18, 1);
@@ -95,7 +100,9 @@ contract LevelUpTest is Base {
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.AmountBelowLocked.selector, COMMON_ID, 15e18, 18e18));
         locking.levelUp(COMMON_ID, 2, 15e18);
         vm.expectRevert(
-            abi.encodeWithSelector(VyraLocking.AmountOutOfRange.selector, COMMON_ID, 31e18, uint128(1e18), uint128(30e18))
+            abi.encodeWithSelector(
+                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 31e18, uint128(1e18), uint128(30e18)
+            )
         );
         locking.levelUp(COMMON_ID, 2, 31e18);
         vm.stopPrank();
@@ -126,7 +133,7 @@ contract LevelUpTest is Base {
         locking.levelUp(COMMON_ID, 1, 20e18);
         locking.levelUp(COMMON_ID, 3, 40e18);
         vm.stopPrank();
-        assertEq(pool.totalReserved(), 18.2e18, "7 days at 5% of (40 + 12 fee)");
+        assertEq(pool.totalReserved(), 70.2e18, "52 back plus 7 days at 5% of (40 + 12 fee)");
         assertEq(locking.totalLevelPayments(), 12e18);
     }
 }

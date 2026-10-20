@@ -1,8 +1,8 @@
 "use client";
 
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
-import { unclaimedDays, type Guardian } from "@/hooks/useGuardians";
-import { dailyTribute, maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { lockDaily, lockEarnedThrough, lockTotal as lockPayoutOf, unclaimedDays, type Guardian } from "@/hooks/useGuardians";
+import { bestLock, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { buyUrlFor } from "@/lib/env";
 import { bpsToPct, DAY, fmtClock, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
@@ -36,17 +36,18 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   const last = top >= 0 ? cfg?.levels[top] : undefined;
   const ended = !!l && now >= l.end;
   const tierClosed = !first || first.maxAmount === 0n;
-  const earnUpTo = maxTribute(cfg, p.durationDays);
+  const best = bestLock(cfg, p.durationDays);
   // Can't cover even a level 1 lock (which has no fee): point straight at where to buy.
   const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < first.minAmount ? buyUrlFor(p.token) : undefined;
   const owedDays = unclaimedDays(g, now);
-  // Running-lock facts: today's day number, and tribute earned so far against the whole lock's total.
-  const daily = l ? dailyTribute(l.amount, l.fee, l.rateBps) : 0n;
+  // Running-lock facts: today's day number, and what the lock paid out so far against its whole payout
+  // (the payment back plus tribute).
+  const daily = l ? lockDaily(l) : 0n;
   const paidIn = l ? l.amount + l.fee : 0n;
   const daysDone = l ? Math.min(Math.max(0, Math.floor((now - l.start) / DAY)), l.durationDays) : 0;
   const dayNow = l ? Math.min(daysDone + 1, l.durationDays) : 0;
-  const earned = daily * BigInt(daysDone);
-  const lockTotal = l ? daily * BigInt(l.durationDays) : 0n;
+  const earned = l ? lockEarnedThrough(l, daysDone) : 0n;
+  const lockTotal = l ? lockPayoutOf(l) : 0n;
   // a lock paid in a token the Keep has since switched away from can't level up; it renews instead
   const oldToken = !!l && !!p.token && l.token.toLowerCase() !== p.token.toLowerCase();
   const canLevelUp = !!l && !ended && !p.paused && !oldToken && l.level < topLevel(p.tiers?.[l.tier]);
@@ -78,11 +79,11 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
         {l ? (
           <>
             <div className="card-row">
-              <span className="dim">{ended ? "Earned this lock" : `Earning ${bpsToPct(l.rateBps)} a day`}</span>
+              <span className="dim">{ended ? "Paid back this lock" : "Paying you"}</span>
               <span className="card-row-end">
                 <span
                   className="num"
-                  title={`${bpsToPct(l.rateBps)} a day on the ${fmtToken(paidIn, p.decimals)} ${p.symbol} paid in (amount + level fee)`}
+                  title={`Your ${fmtToken(paidIn, p.decimals)} ${p.symbol} back plus ${bpsToPct(l.rateBps)} a day on it, spread over ${plural(l.durationDays, "day")}`}
                 >
                   {ended
                     ? `${fmtToken(lockTotal, p.decimals)} ${p.symbol}`
@@ -93,7 +94,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             </div>
             {!ended && (
               <dl className="card-facts num">
-                <div title="Amount + level fee paid into the pool; tribute is earned on all of it">
+                <div title="Amount + level fee paid into the pool; all of it comes back, with tribute on top">
                   <dt>Paid in</dt>
                   <dd>
                     {fmtToken(paidIn, p.decimals)}
@@ -108,7 +109,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                   </dd>
                 </div>
                 <div className="is-tier">
-                  <dt>Earned</dt>
+                  <dt>Paid back</dt>
                   <dd title={`${fmtToken(earned, p.decimals)} of ${fmtToken(lockTotal, p.decimals)} ${p.symbol} this lock`}>
                     {fmtToken(earned, p.decimals, 2)}
                     <small>/ {fmtToken(lockTotal, p.decimals, 0)}</small>
@@ -127,11 +128,11 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             )}
             {ended && (
               <div className="card-row">
-                <span className="dim">Tribute due</span>
+                <span className="dim">Ready to claim</span>
                 <span className="num claimable">
                   {fmtToken(g.pending, p.decimals)} {p.symbol}
                   {!!owedDays && (
-                    <span className="due-days" title={`${plural(owedDays, "day")} of tribute waiting to be claimed`}>
+                    <span className="due-days" title={`${plural(owedDays, "day")} waiting to be claimed`}>
                       {plural(owedDays, "day")}
                     </span>
                   )}
@@ -154,7 +155,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                   onClick={onUnlock}
                   title={
                     g.pending && g.pending > 0n
-                      ? `Take your guardian and ${fmtToken(g.pending, p.decimals)} ${p.symbol} of tribute home`
+                      ? `Take your guardian and ${fmtToken(g.pending, p.decimals)} ${p.symbol} home`
                       : "Take your guardian home"
                   }
                 >
@@ -168,7 +169,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                   ready={!!g.pending && g.pending > 0n}
                   disabled={busy}
                   onClaim={onClaim}
-                  title={owedDays ? `Claim ${plural(owedDays, "day")} of tribute` : "Tribute builds up every day"}
+                  title={owedDays ? `Claim ${plural(owedDays, "day")} of payouts` : "A payout builds up every day"}
                   label={
                     g.pending && g.pending > 0n ? (
                       <>
@@ -196,17 +197,20 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
           </>
         ) : (
           <>
-            {tierClosed || earnUpTo === undefined ? (
+            {tierClosed || best === undefined ? (
               <p className="card-pitch card-pitch-closed lore">Locking is closed for this tier for now.</p>
             ) : (
-              <div className="card-pitch">
-                <span className="card-pitch-kicker">Earn up to</span>
+              <div
+                className="card-pitch"
+                title={`Level ${best.level + 1}: pay ${fmtToken(best.paid, p.decimals)} ${p.symbol}, get ${fmtToken(best.payout, p.decimals)} ${p.symbol} back over ${plural(Number(p.durationDays), "day")}`}
+              >
+                <span className="card-pitch-kicker">Get up to</span>
                 <span className="card-pitch-value num">
-                  {fmtToken(earnUpTo, p.decimals, 0)} <small>{p.symbol}</small>
+                  {fmtToken(best.daily, p.decimals, 2)} <small>{p.symbol} / day</small>
                 </span>
                 <span className="card-pitch-sub">
-                  {usd !== undefined && <b className="card-pitch-usd">{usdOf(earnUpTo, p.decimals, usd)} · </b>}
-                  {bpsToPct(cfg!.dailyRateBps)} a day on what you pay · {p.durationDays} days
+                  {usd !== undefined && <b className="card-pitch-usd">{usdOf(best.daily, p.decimals, usd)}/day · </b>}
+                  Your payment back + {fmtToken(best.tribute, p.decimals, 1)} {p.symbol} profit · {p.durationDays} days
                 </span>
               </div>
             )}
@@ -274,7 +278,7 @@ function ClaimBar({
       disabled={disabled || !ready}
       onClick={(e) => onClaim(e.currentTarget)}
       title={title}
-      aria-label={`${ready ? "Claim tribute" : "Nothing to claim yet"}, lock ${pct} complete`}
+      aria-label={`${ready ? "Claim payout" : "Nothing to claim yet"}, lock ${pct} complete`}
     >
       <span className="claimbar-track">{content}</span>
       <span className="claimbar-fill" aria-hidden>

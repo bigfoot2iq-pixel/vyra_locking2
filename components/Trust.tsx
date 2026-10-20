@@ -1,7 +1,7 @@
 "use client";
 
 import type { Address } from "viem";
-import { dailyTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { dailyPayout, lockTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { contractUrl, useVerified } from "@/hooks/useVerified";
 import { addresses } from "@/lib/env";
 import { bpsToPct, fmtToken, shortAddr } from "@/lib/format";
@@ -9,24 +9,24 @@ import { CountUp } from "./fx/CountUp";
 
 const PROMISES = [
   {
-    title: "Every day pays on everything you paid",
-    body: "Your amount and your level fee both go into the reward pool and stay there. Each full day of the lock pays your rarity's rate on the two together.",
+    title: "Everything you pay comes back",
+    body: "Your amount and your level fee both go into the reward pool. Each full day of the lock pays an equal share of them back plus your rarity's rate on the two together.",
   },
   {
-    title: "Your tribute is set aside first",
-    body: "A lock only opens if the pool can already pay its full tribute. That amount is reserved for you as soon as you lock.",
+    title: "Your payout is set aside first",
+    body: "A lock only opens if the pool can already pay everything back with its full profit. That amount is reserved for you as soon as you lock.",
   },
   {
-    title: "Nobody can touch promised tribute",
-    body: "The owner can only withdraw what isn't reserved for running locks. Tribute promised to you can only go to you.",
+    title: "Nobody can touch what you're owed",
+    body: "The owner can only withdraw what isn't reserved for running locks. What is promised to you can only go to you.",
   },
   {
     title: "Claim and unlock always work",
-    body: "A pause only stops new locks. Claiming tribute and taking your guardian home can never be switched off.",
+    body: "A pause only stops new locks. Claiming payouts and taking your guardian home can never be switched off.",
   },
   {
     title: "Emergency returns go only to you",
-    body: "If the Keep ever closes early, your guardian and the full tribute for the period go back to the wallet that locked it.",
+    body: "If the Keep ever closes early, your guardian and the full payout for the period go back to the wallet that locked it.",
   },
 ];
 
@@ -45,23 +45,24 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
   const top = topLevel(cfg);
   const exLv = cfg && top >= 0 ? cfg.levels[top] : undefined;
   const exPaid = exLv ? exLv.maxAmount + exLv.price : undefined;
-  const exDaily = exLv && cfg ? dailyTribute(exLv.maxAmount, exLv.price, cfg.dailyRateBps) : undefined;
-  const exTribute = exDaily !== undefined ? exDaily * BigInt(p.durationDays ?? 0) : undefined;
+  const exDays = p.durationDays ?? 0;
+  const exDaily = exLv && cfg ? dailyPayout(exLv.maxAmount, exLv.price, cfg.dailyRateBps, exDays) : undefined;
+  const exTribute = exLv && cfg ? lockTribute(exLv.maxAmount, exLv.price, cfg.dailyRateBps, exDays) : undefined;
 
   return (
     <section className="section" id="trust">
       <div className="section-head">
         <div>
-          <span className="kicker">◆ How tribute works</span>
-          <h2>Every day pays on all you paid</h2>
+          <span className="kicker">◆ How payouts work</span>
+          <h2>All you pay comes back, with profit</h2>
         </div>
       </div>
 
       <div className="trust plate">
         <p className="trust-lead">
-          What you pay for a lock, the amount and the level fee, goes to the reward pool and stays there. In return, every
-          full day of the lock pays your rarity&apos;s daily rate on the whole payment, and your guardian comes home when the
-          lock ends.
+          What you pay for a lock, the amount and the level fee, goes to the reward pool. Every full day of the lock pays
+          you an equal share of it back plus your rarity&apos;s daily rate on the whole payment, so by the last day you have
+          all of it back with profit on top, and your guardian comes home.
         </p>
 
         {exLv && exPaid !== undefined && exDaily !== undefined && exTribute !== undefined && cfg && exPaid > 0n && (
@@ -81,15 +82,18 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
               <span className="trust-flow-v is-gold">
                 +{fmtToken(exDaily, p.decimals, 2)} <small>{p.symbol}</small>
               </span>
-              <span className="trust-flow-s">{bpsToPct(cfg.dailyRateBps)} of the whole payment, claim any time</span>
+              <span className="trust-flow-s">
+                a {p.durationDays}th of your payment back + {bpsToPct(cfg.dailyRateBps)} of it, claim any time
+              </span>
             </li>
             <li>
               <span className="trust-flow-k">Over {p.durationDays} days</span>
               <span className="trust-flow-v is-ok">
-                +{fmtToken(exTribute, p.decimals, 2)} <small>{p.symbol}</small>
+                {fmtToken(exPaid + exTribute, p.decimals, 2)} <small>{p.symbol}</small>
               </span>
               <span className="trust-flow-s">
-                {bpsToPct(cfg.dailyRateBps * Number(p.durationDays ?? 0))} of what you paid, and your guardian back
+                your {fmtToken(exPaid, p.decimals, 2)} back + {fmtToken(exTribute, p.decimals, 2)} profit (
+                {bpsToPct(cfg.dailyRateBps * Number(p.durationDays ?? 0))}), and your guardian
               </span>
             </li>
           </ol>
@@ -131,7 +135,7 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
               <dd className="trust-ledger-note">Amounts and level fees, kept by the pool</dd>
             </div>
             <div>
-              <dt>Tribute reserved</dt>
+              <dt>Owed to holders</dt>
               <dd>
                 <CountUp value={p.totalReserved} decimals={p.decimals} maxFrac={0} /> <small>{p.symbol}</small>
               </dd>
@@ -145,7 +149,7 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
               <dd className="trust-ledger-note">Everything that pays tribute</dd>
             </div>
             <div>
-              <dt>Tribute paid</dt>
+              <dt>Paid to holders</dt>
               <dd>
                 <CountUp value={p.totalPaidOut} decimals={p.decimals} maxFrac={0} /> <small>{p.symbol}</small>
               </dd>
@@ -183,8 +187,8 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
             })}
           </ul>
           <p className="faint trust-foot">
-            The code on the explorer is the code that runs. Open the pool and read <code>rewardPerDay</code> to see tribute
-            computed on amount + fee, and <code>reserve</code> to see it set aside. Not yet independently audited.
+            The code on the explorer is the code that runs. Open the pool and read <code>maxReward</code> to see the payout
+            (amount + fee back, plus tribute on both), and <code>reserve</code> to see it set aside. Not yet independently audited.
           </p>
         </div>
       </div>

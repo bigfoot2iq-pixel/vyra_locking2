@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, erc721Abi, formatUnits, parseUnits } from "viem";
 import type { Guardian } from "@/hooks/useGuardians";
-import type { Protocol } from "@/hooks/useProtocol";
+import { dailyPayout, lockTribute, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -19,7 +19,6 @@ import { ShortNotice } from "./ShortNotice";
 import { tierStyle } from "./TierBadge";
 import { WalletHint } from "./WalletHint";
 
-const BPS = 10_000n;
 
 type StepKey = "nft" | "token" | "act";
 
@@ -67,8 +66,9 @@ export function LockDialog({
   const rate = BigInt(cfg?.dailyRateBps ?? 0);
   const a = amount ?? 0n;
   const pay = a + fee;
-  const daily = (pay * rate) / BPS; // the rate applies to the amount and the level fee together
-  const total = daily * days;
+  // everything paid comes back, plus the rate on all of it each day, in equal daily payouts
+  const daily = dailyPayout(a, fee, rate, days);
+  const total = lockTribute(a, fee, rate, days);
 
   // Approvals made in this dialog count right away, even if the RPC hasn't caught up yet.
   const [granted, setGranted] = useState(false);
@@ -83,14 +83,14 @@ export function LockDialog({
   // Renewing never moves the NFT, so only new locks depend on the collection's allow-list.
   const blocked = mode === "lock" && p.keepAllowed === false;
   const unclaimed = g.pending ?? 0n;
-  // A renewal closes the finished lock first, in the same transaction: its unclaimed tribute lands in
+  // A renewal closes the finished lock first, in the same transaction: its unclaimed payout lands in
   // the wallet before the new amount is taken (when it is in the token the Keep uses now).
   const sameToken = !!g.lock && !!p.token && g.lock.token.toLowerCase() === p.token.toLowerCase();
   const credit = mode === "renew" && sameToken ? unclaimed : 0n;
   const need = pay > credit ? pay - credit : 0n;
   const short = p.balance !== undefined && p.balance < need;
-  // tribute is backed by the pool's free fund, which this payment joins before the reserve is taken
-  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable + pay;
+  // the payment joins the free fund before the payout is reserved, so only the profit needs covering
+  const poolShort = p.poolAvailable !== undefined && total > p.poolAvailable;
 
   const usdOf = (v: bigint) => (usd !== undefined ? fmtUsd(Number(formatUnits(v, p.decimals)) * usd) : "");
 
@@ -265,7 +265,7 @@ export function LockDialog({
           <p className="notice" style={{ marginTop: 0 }}>
             <span className="gem-sm" />
             <span>
-              The {fmtToken(unclaimed, p.decimals)} {sameToken ? p.symbol : "tokens"} of unclaimed tribute from the finished
+              The {fmtToken(unclaimed, p.decimals)} {sameToken ? p.symbol : "tokens"} still unclaimed from the finished
               lock is paid to you first, in the same transaction.
             </span>
           </p>
@@ -273,7 +273,7 @@ export function LockDialog({
         {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
         <ShortNotice protocol={p} pay={need} />
         {poolShort && (
-          <p className="notice notice-warn">The reward pool can&apos;t back this much tribute right now. Try a smaller amount.</p>
+          <p className="notice notice-warn">The reward pool can&apos;t back this much profit right now. Try a smaller amount.</p>
         )}
 
         {blocked && (

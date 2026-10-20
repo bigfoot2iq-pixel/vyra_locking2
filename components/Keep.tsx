@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { useAccount } from "wagmi";
 import { useChainNow } from "@/hooks/useChainNow";
-import { noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
-import { dailyTribute, maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
+import { lockDaily, noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
+import { bestLock, maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
@@ -44,14 +44,15 @@ export function Keep() {
   const claimable = gs.locked.filter((g) => (g.pending ?? 0n) > 0n);
   const owedDays = claimable.reduce((n, g) => n + (unclaimedDays(g, now) ?? 0), 0);
   const running = gs.locked.filter((g) => g.lock && now < g.lock.end);
-  // Tribute the wallet's running locks earn per day: the number that grows with every new lock.
-  const dailyEarn = running.reduce((a, g) => a + dailyTribute(g.lock!.amount, g.lock!.fee, g.lock!.rateBps), 0n);
+  // What the wallet's running locks pay per day (payment back + tribute): the number that grows with every new lock.
+  const dailyEarn = running.reduce((a, g) => a + lockDaily(g.lock!), 0n);
   const nextTribute = running.reduce<number | undefined>((soonest, g) => {
     const t = g.lock!.start + (Math.floor((now - g.lock!.start) / DAY) + 1) * DAY;
     return soonest === undefined || t < soonest ? t : soonest;
   }, undefined);
   const lockable = gs.idle.filter((g) => maxTribute(p.tiers?.[g.tier], p.durationDays) !== undefined);
   const idleUpside = lockable.reduce((a, g) => a + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
+  const idleDaily = lockable.reduce((a, g) => a + (bestLock(p.tiers?.[g.tier], p.durationDays)?.daily ?? 0n), 0n);
   const canLock = lockable.length > 0 && !p.paused && p.keepAllowed !== false;
   // The cheapest lock any idle guardian allows (level 1, no fee); below it the wallet can't lock anything.
   const cheapest = lockable.reduce<bigint | undefined>((m, g) => {
@@ -106,11 +107,12 @@ export function Keep() {
           <p className="lore">
             {isConnected && lockable.length > 0 && idleUpside > 0n ? (
               <>
-                Your {plural(lockable.length, "idle guardian")} could earn{" "}
+                Your {plural(lockable.length, "idle guardian")} could pay you{" "}
                 <b>
-                  up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol}
+                  up to {fmtToken(idleDaily, p.decimals, 2)} {p.symbol} a day
                 </b>
-                {usd !== undefined && <span className="hero-usd"> {usdOf(idleUpside, p.decimals, usd)}</span>}.
+                {usd !== undefined && <span className="hero-usd"> {usdOf(idleDaily, p.decimals, usd)}</span>}: everything
+                you pay back, plus up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol} profit.
               </>
             ) : (
               <>
@@ -190,7 +192,7 @@ export function Keep() {
             <small>{p.symbol}</small>
           </div>
           <div className="stat-sub">
-            <a href="#trust">All of it earns tribute daily</a>
+            <a href="#trust">All of it comes back, with profit</a>
           </div>
         </div>
         <div className="stat stat-pool">
@@ -204,7 +206,7 @@ export function Keep() {
           </div>
         </div>
         <div className="stat stat-gold">
-          <div className="stat-label">You earn per day</div>
+          <div className="stat-label">You get per day</div>
           <div className="stat-value num">
             {isConnected ? (
               <>
@@ -283,15 +285,16 @@ export function Keep() {
             <span className="roman">II</span>
             <h3>Keep vigil</h3>
             <p>
-              Your lock runs for {p.durationDays ?? "—"} days. Every full day pays your rarity&apos;s rate on{" "}
-              <b>everything you paid</b>, amount and level fee together. Claim any time; unclaimed days carry over.
+              Your lock runs for {p.durationDays ?? "—"} days. Every full day pays back a share of{" "}
+              <b>everything you paid</b> plus your rarity&apos;s daily rate on it, so by the last day it is all back with
+              profit. Claim any time; unclaimed days carry over.
             </p>
           </div>
           <div className="rite-step plate">
             <span className="roman">III</span>
             <h3>Bring it home</h3>
             <p>
-              When the lock ends, unlock to get your guardian back with any tribute still owed. Or renew to keep earning
+              When the lock ends, unlock to get your guardian back with any payout still owed. Or renew to keep earning
               without moving your guardian.
             </p>
           </div>
@@ -301,6 +304,7 @@ export function Keep() {
           {TIERS.map((t) => {
             const cfg = p.tiers?.[t.id];
             const top = topLevel(cfg);
+            // profit over a full lock, on top of the payment that comes back
             const full = cfg ? (cfg.dailyRateBps * Number(p.durationDays ?? 0)) / 100 : 0;
             const l1 = cfg?.levels[0];
             const lTop = top >= 0 ? cfg?.levels[top] : undefined;
@@ -328,7 +332,7 @@ export function Keep() {
                   </div>
                   <div>
                     <dt>Full lock</dt>
-                    <dd>{full ? `${full}%` : "—"}</dd>
+                    <dd>{full ? `100% + ${full}%` : "—"}</dd>
                   </div>
                 </dl>
               </div>

@@ -6,6 +6,7 @@ import { useAccount, usePublicClient, useReadContract, useReadContracts } from "
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
 import { addresses, explorerUrl, isConfigured } from "@/lib/env";
 import { DAY } from "@/lib/format";
+import { lockPayout } from "./useProtocol";
 
 const enumerableAbi = parseAbi(["function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"]);
 
@@ -18,12 +19,14 @@ export interface LockInfo {
   start: number;
   end: number;
   lockId: bigint;
-  /** Tokens paid into the pool for this period; they stay there. */
+  /** Tokens paid into the pool for this period; they come back with the daily payouts. */
   amount: bigint;
-  /** Level fee paid for this period; tribute is earned on amount + fee. */
+  /** Level fee paid for this period; it comes back too, and tribute is earned on amount + fee. */
   fee: bigint;
-  /** Token this period was paid in; its rewards come in the same token. */
+  /** Token this period was paid in; its payouts come in the same token. */
   token: Address;
+  /** The pool's payout schedule: `total` spread evenly from day `from` to the end; `before` paid earlier. */
+  schedule?: { total: bigint; from: number; before: bigint };
 }
 
 export interface Guardian {
@@ -158,6 +161,13 @@ export function useGuardians() {
     ),
     query: { enabled: lockRecords.length > 0, refetchInterval: 15_000 },
   });
+  const schedules = useReadContracts({
+    allowFailure: false,
+    contracts: lockRecords.map(
+      (l) => ({ address: addresses.pool!, abi: vyraRewardPoolAbi, functionName: "scheduleOf", args: [l.lockId] }) as const,
+    ),
+    query: { enabled: lockRecords.length > 0, refetchInterval: 30_000 },
+  });
 
   const pendingAmounts = locks.data?.[1]?.[0] ?? [];
   const info = perToken.data ?? [];
@@ -183,6 +193,8 @@ export function useGuardians() {
         fee: l.fee,
         token: l.token,
       };
+      const s = schedules.data?.[i];
+      if (s && s[0] > 0n) g.lock.schedule = { total: s[0], from: Number(s[1]), before: s[2] };
       g.pending = pendingAmounts[i];
       g.claimedDays = claimed.data?.[i] !== undefined ? Number(claimed.data[i]) : undefined;
     }
@@ -214,4 +226,23 @@ export function unclaimedDays(g: Guardian, now: number): number | undefined {
   if (!l || g.claimedDays === undefined) return undefined;
   const full = Math.min(Math.floor(Math.max(0, now - l.start) / DAY), l.durationDays);
   return Math.max(0, full - g.claimedDays);
+}
+
+/** Everything the lock pays back over its period: payment + tribute, level-ups included. */
+export function lockTotal(l: LockInfo): bigint {
+  return l.schedule ? l.schedule.before + l.schedule.total : lockPayout(l.amount, l.fee, l.rateBps, l.durationDays);
+}
+
+/** What the lock pays a day now (after a level-up the remaining days pay more). */
+export function lockDaily(l: LockInfo): bigint {
+  if (l.schedule) return l.schedule.total / BigInt(Math.max(1, l.durationDays - l.schedule.from));
+  return lockPayout(l.amount, l.fee, l.rateBps, l.durationDays) / BigInt(Math.max(1, l.durationDays));
+}
+
+/** Paid out (or claimable) through day `day`, as the pool slices it. */
+export function lockEarnedThrough(l: LockInfo, day: number): bigint {
+  const d = Math.min(Math.max(0, day), l.durationDays);
+  const s = l.schedule ?? { total: lockPayout(l.amount, l.fee, l.rateBps, l.durationDays), from: 0, before: 0n };
+  if (d <= s.from) return s.before; // days before a level-up: already paid out in full by then
+  return s.before + (s.total * BigInt(d - s.from)) / BigInt(l.durationDays - s.from);
 }

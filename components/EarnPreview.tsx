@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { maxTribute, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { bestLock, dailyPayout, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { bpsToPct, fmtToken, usdOf } from "@/lib/format";
 import { TIERS } from "@/lib/tiers";
 import { tierStyle } from "./TierBadge";
@@ -13,8 +13,9 @@ export function EarnPreview({ protocol: p, usd }: { protocol: Protocol; usd: num
   const cfg = p.tiers?.[tier];
   const first = cfg?.levels[0];
   const days = BigInt(p.durationDays ?? 0);
-  const free = first && cfg ? ((first.maxAmount * BigInt(cfg.dailyRateBps)) / 10_000n) * days : undefined;
-  const best = maxTribute(cfg, p.durationDays);
+  // what each lock pays a day: the payment back plus the rate on it, spread over the days
+  const free = first && cfg ? dailyPayout(first.maxAmount, 0n, cfg.dailyRateBps, days) : undefined;
+  const best = bestLock(cfg, p.durationDays)?.daily;
   const top = topLevel(cfg);
 
   return (
@@ -43,23 +44,24 @@ export function EarnPreview({ protocol: p, usd }: { protocol: Protocol; usd: num
           <div>
             <span className="card-pitch-kicker">Level 1 · no fee</span>
             <span className="preview-value num">
-              {fmtToken(free, p.decimals, 0)} <small>{p.symbol}</small>
+              {fmtToken(free, p.decimals, 2)} <small>{p.symbol} / day</small>
             </span>
             <span className="faint">{usdOf(free, p.decimals, usd)}</span>
           </div>
           <div className="preview-best">
             <span className="card-pitch-kicker">Up to · Level {top + 1}</span>
             <span className="preview-value num">
-              {fmtToken(best, p.decimals, 0)} <small>{p.symbol}</small>
+              {fmtToken(best, p.decimals, 2)} <small>{p.symbol} / day</small>
             </span>
             <span className="faint">{usdOf(best, p.decimals, usd)}</span>
           </div>
         </div>
       )}
       <p className="dim preview-note">
-        {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day on everything you pay (amount + level fee) for {p.durationDays ?? "—"}{" "}
-        days
-        {cfg && p.durationDays ? `: ${bpsToPct(cfg.dailyRateBps * Number(p.durationDays))} per lock` : ""}. Claim whenever you like.
+        Over {p.durationDays ?? "—"} days you get everything you pay (amount + level fee) back, plus{" "}
+        {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} of it a day
+        {cfg && p.durationDays ? `: +${bpsToPct(cfg.dailyRateBps * Number(p.durationDays))} profit per lock` : ""}. Paid out daily,
+        claim whenever you like.
       </p>
       <WalletButton label="Connect to lock yours" />
     </div>

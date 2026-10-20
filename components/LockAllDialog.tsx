@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, erc721Abi } from "viem";
 import type { Guardian } from "@/hooks/useGuardians";
-import { dailyTribute, maxTribute, type Protocol } from "@/hooks/useProtocol";
+import { dailyPayout, lockTribute, maxTribute, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -54,8 +54,9 @@ export function LockAllDialog({
     const level = levels[key] ?? 0;
     const lv = cfg.levels[level];
     const amount = lv.maxAmount;
-    const daily = dailyTribute(amount, lv.price, cfg.dailyRateBps);
-    const tribute = daily * BigInt(p.durationDays ?? 0);
+    const days = p.durationDays ?? 0;
+    const daily = dailyPayout(amount, lv.price, cfg.dailyRateBps, days);
+    const tribute = lockTribute(amount, lv.price, cfg.dailyRateBps, days);
     return { g, key, level, amount, fee: lv.price, daily, tribute, on: picked.has(key) };
   });
   const chosen = rows.filter((r) => r.on);
@@ -81,8 +82,8 @@ export function LockAllDialog({
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const blocked = p.keepAllowed === false;
   const short = p.balance !== undefined && p.balance < pay;
-  // tribute is backed by the pool's free fund, which this payment joins before the reserve is taken
-  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable + pay;
+  // the payment joins the free fund before the payouts are reserved, so only the profit needs covering
+  const poolShort = p.poolAvailable !== undefined && tribute > p.poolAvailable;
 
   const steps: { key: StepKey; label: string; needed: boolean }[] = [
     { key: "nft", label: "Let the Keep hold your guardians", needed: needNft },
@@ -162,9 +163,10 @@ export function LockAllDialog({
   return (
     <Dialog title={`Lock ${plural(lockable.length, "guardian")}`} kicker={<>◆ Lock all</>} image={leadImage} onClose={onClose}>
       <p className="dim" style={{ margin: "-8px 0 16px", fontSize: "0.84rem" }}>
-        Each guardian pays its level&apos;s full amount into the pool and earns its rarity&apos;s rate on amount + fee every
-        day. Level 1 has no fee. Higher levels earn more
-        {bestUpside > 0n && <>, up to {fmtToken(bestUpside, p.decimals, 0)} {p.symbol} across all of them</>}.
+        Each guardian pays its level&apos;s full amount into the pool. Every day you get part of it back plus its
+        rarity&apos;s rate on amount + fee, so by the end all of it is back with profit on top. Level 1 has no fee.
+        Higher levels earn more
+        {bestUpside > 0n && <>, up to {fmtToken(bestUpside, p.decimals, 0)} {p.symbol} profit across all of them</>}.
       </p>
 
       <ul className="lockall-list">
@@ -203,9 +205,9 @@ export function LockAllDialog({
                   );
                 })}
               </select>
-              <span className="lockall-earn num">
-                +{fmtToken(r.tribute, p.decimals, 0)}
-                <small>{p.symbol}</small>
+              <span className="lockall-earn num" title={`+${fmtToken(r.tribute, p.decimals)} ${p.symbol} profit over the lock`}>
+                +{fmtToken(r.daily, p.decimals, 2)}
+                <small>{p.symbol}/day</small>
               </span>
             </li>
           );
@@ -225,7 +227,7 @@ export function LockAllDialog({
 
       <ShortNotice protocol={p} pay={pay} />
       {poolShort && (
-        <p className="notice notice-warn">The reward pool can&apos;t back this much tribute right now. Lock fewer guardians or lower levels.</p>
+        <p className="notice notice-warn">The reward pool can&apos;t back this much profit right now. Lock fewer guardians or lower levels.</p>
       )}
       {blocked && (
         <p className="notice notice-warn">

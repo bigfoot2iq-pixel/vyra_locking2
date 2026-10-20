@@ -13,25 +13,24 @@ import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 interface IRewardPool {
     function reserve(uint256 tokenId) external;
     function settle(uint256 tokenId) external returns (uint256);
-    function release(uint256 tokenId) external;
-    function reserveRemaining(uint256 tokenId) external;
+    function extend(uint256 tokenId, uint256 added) external;
     function close(uint256 tokenId) external returns (uint256 reward);
     function closeFull(uint256 tokenId) external returns (uint256 reward);
 }
 
 /// @title VyraLocking
 /// @notice Holders lock a VYRA guardian for a fixed period and pay a level-bounded amount of the token
-///         (plus the level fee) into the {VyraRewardPool}. Every day the lock earns its tier's rate on
-///         everything paid (amount + fee). The payment stays in the pool; the guardian comes back
-///         when the lock closes.
+///         (plus the level fee) into the {VyraRewardPool}. Over the period the pool pays it all back
+///         (amount + fee) plus the tier's daily rate on it, in equal daily parts. The guardian comes
+///         back when the lock closes.
 /// @dev Tiers match the collection's "Rarity" trait: 0 Common, 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary.
 ///      Each token's tier is stored in a packed on-chain map (4 bits per token) uploaded by the owner.
 ///      Each tier has 5 levels (0-based here, shown as 1-5). A level sets the allowed lock amount.
 ///      The holder picks the level when locking or renewing: level 1 is free, a higher level costs
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
 ///      the fee difference plus a top-up, and the remaining days earn on the bigger total.
-///      Amounts and level fees both go to the pool for good and fund rewards. Nothing is burned
-///      and this contract never keeps tokens.
+///      Amounts and level fees both go to the pool and come back with the daily payouts. Nothing
+///      is burned and this contract never keeps tokens.
 ///      The owner can switch the payment token at any time. New locks, renewals and level-ups use
 ///      the new token; a running lock keeps the token it was paid in, and its rewards come in that
 ///      token. A lock paid in an old token can't level up; it renews into the new one.
@@ -198,8 +197,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Raise a running lock to a higher level and pay in more.
     ///         Pays: (new level fee - current level fee) + (newAmount - current amount), into the pool.
-    ///         Tribute earned so far is paid out first; the remaining days earn on `newAmount` plus
-    ///         the new level's full fee.
+    ///         Days earned so far are paid out first. What is added comes back over the remaining
+    ///         days, with tribute on it for those days.
     ///         The end date does not change. Only while the lock is running.
     /// @param newLevel 0-based target level, above the current one.
     /// @param newAmount total locked after the level-up: inside the new level's range and not below
@@ -228,13 +227,12 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         uint8 fromLevel = l.level;
 
         IRewardPool(pool).settle(tokenId); // pay earned days at the old amount
-        IRewardPool(pool).release(tokenId); // free the old reserve for the remaining days
         _collect(topUp, feeDiff);
         l.level = newLevel;
         // forge-lint: disable-next-line(unsafe-typecast) newAmount <= target.maxAmount (uint128)
         l.amount = uint128(newAmount);
         l.fee = target.price;
-        IRewardPool(pool).reserveRemaining(tokenId); // reserve the remaining days at the new total
+        IRewardPool(pool).extend(tokenId, topUp + feeDiff); // the addition comes back over the remaining days
 
         emit LeveledUp(msg.sender, tokenId, fromLevel, newLevel, newAmount, topUp + feeDiff);
     }

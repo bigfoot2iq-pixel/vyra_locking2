@@ -9,14 +9,15 @@ import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 
 /// @title VyraRewardPool
 /// @notice The single treasury of the Keep. Every lock payment (amount + level fee) and every deposit
-///         flows in here and stays here; holders' daily rewards are paid out of it.
+///         flows in here; holders' daily payouts are paid out of it.
 /// @dev Security model:
 ///      - Tokens leave only three ways: reward claims (to the lock owner), settlement on
 ///        unlock/renew/emergency return (to the lock owner), and `withdrawSurplus` by the owner.
-///      - A lock earns `(amount + fee) * rateBps` per day. Its full-period reward is reserved when
-///        it opens; a lock cannot open unless the free balance covers it, and the owner can only
-///        withdraw what is NOT reserved. So even a compromised owner key cannot take rewards
-///        already promised to holders.
+///      - A lock pays back everything paid for it (amount + fee) plus its tribute (`rateBps` of the
+///        payment per day), spread evenly over the period: `paid * (1 + rate * days) / days` a day.
+///        The full payout is reserved when the lock opens; a lock cannot open unless the free
+///        balance covers it, and the owner can only withdraw what is NOT reserved. So even a
+///        compromised owner key cannot take payouts already promised to holders.
 ///      - The locking contract is wired once and can never be changed.
 ///      - The payment token can be switched on the locking contract. Every lock remembers the token
 ///        it was paid in, and the pool keeps reserves and stats per token, so a switch never
@@ -38,13 +39,25 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     /// @notice Days already paid out, per lock id.
     mapping(uint64 lockId => uint16) public claimedDays;
 
+    /// @notice How a lock's payout is spread: `total` is paid evenly over the days from day `from`
+    ///         to the lock's end. A level-up starts a new schedule on the day it happens; `before`
+    ///         is what the lock's earlier schedules paid for the days before it.
+    ///         The lock's whole payout is `before + total`.
+    struct Schedule {
+        uint128 total;
+        uint16 from;
+        uint128 before;
+    }
+
+    /// @notice Payout schedule per lock id.
+    mapping(uint64 lockId => Schedule) public scheduleOf;
+
     event LockingSet(address indexed locking);
     event Deposited(address indexed from, uint256 amount);
     event Reserved(uint256 indexed tokenId, uint64 indexed lockId, uint256 amount);
     event Claimed(
         address indexed owner, uint256 indexed tokenId, uint64 indexed lockId, uint16 daysPaid, uint256 amount
     );
-    event Released(uint256 indexed tokenId, uint64 indexed lockId, uint256 amount);
     event SurplusWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error LockingAlreadySet();
@@ -112,13 +125,22 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         return withdrawnOf[_current()];
     }
 
-    /// @notice Daily reward: the lock's rate on everything paid for it, amount + level fee.
-    function rewardPerDay(IVyraLocking.Lock memory l) public pure returns (uint256) {
-        return (uint256(l.amount) + l.fee) * l.rateBps / BPS;
+    /// @notice Profit over the whole period: the lock's daily rate on everything paid for it
+    ///         (amount + level fee), times its days.
+    function tributeOf(IVyraLocking.Lock memory l) public pure returns (uint256) {
+        return (uint256(l.amount) + l.fee) * l.rateBps * l.durationDays / BPS;
     }
 
+    /// @notice Everything a freshly opened lock pays back over its period: the payment
+    ///         (amount + level fee) plus the tribute.
     function maxReward(IVyraLocking.Lock memory l) public pure returns (uint256) {
-        return rewardPerDay(l) * l.durationDays;
+        return uint256(l.amount) + l.fee + tributeOf(l);
+    }
+
+    /// @notice Daily payout of a freshly opened lock: `maxReward / days`. Claims pay exact slices
+    ///         of the schedule, so one day can differ from this by a wei.
+    function rewardPerDay(IVyraLocking.Lock memory l) public pure returns (uint256) {
+        return l.durationDays == 0 ? 0 : maxReward(l) / l.durationDays;
     }
 
     /// @notice Full 24h periods elapsed since lock start, capped at the lock duration.
@@ -133,7 +155,14 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint16 due = daysElapsed(l);
         uint16 done = claimedDays[l.lockId];
-        return due > done ? rewardPerDay(l) * (due - done) : 0;
+        return due > done ? _slice(l, done, due) : 0;
+    }
+
+    /// @notice What a lock still has to pay out, claimable or not (its share of the reserve).
+    function remainingOf(uint256 tokenId) public view returns (uint256) {
+        IVyraLocking.Lock memory l = locking.lockOf(tokenId);
+        if (l.owner == address(0)) return 0;
+        return scheduleOf[l.lockId].total - _owedThrough(l, claimedDays[l.lockId]);
     }
 
     function pendingMany(uint256[] calldata tokenIds) external view returns (uint256[] memory out, uint256 total) {
@@ -181,36 +210,39 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // Locking hooks
     // ------------------------------------------------------------------
 
-    /// @notice Reserve a freshly opened lock's full-period reward. Its payment landed just before
-    ///         and is part of the free balance the reward is reserved from.
+    /// @notice Reserve a freshly opened lock's full payout (payment + tribute). Its payment landed
+    ///         just before and is part of the free balance the payout is reserved from.
     function reserve(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
-        _reserve(tokenId, l, maxReward(l));
+        uint256 total = maxReward(l);
+        _reserve(tokenId, l, total);
+        // forge-lint: disable-next-line(unsafe-typecast) amount + fee are uint128 level caps
+        scheduleOf[l.lockId] = Schedule({total: uint128(total), from: 0, before: 0});
     }
 
-    /// @notice Release the reserve for a running lock's remaining days. Called (after `settle`)
-    ///         right before the lock's amount and fee change on a level-up.
-    function release(uint256 tokenId) external onlyLocking {
+    /// @notice A running lock leveled up and `added` more was paid in (top-up + fee difference).
+    ///         Called after `settle`. The addition comes back in full over the remaining days, with
+    ///         tribute on it for those days, on top of what the lock still had to pay.
+    function extend(uint256 tokenId, uint256 added) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
-        uint256 remaining = rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]);
-        reservedOf[l.token] -= remaining;
-        emit Released(tokenId, l.lockId, remaining);
+        uint16 done = claimedDays[l.lockId];
+        Schedule memory s = scheduleOf[l.lockId];
+        uint256 owed = _owedThrough(l, done);
+        uint256 extra = added + added * l.rateBps * (l.durationDays - done) / BPS;
+        _reserve(tokenId, l, extra);
+        // forge-lint: disable-next-line(unsafe-typecast) bounded by the uint128 level caps
+        scheduleOf[l.lockId] =
+            Schedule({total: uint128(s.total - owed + extra), from: done, before: uint128(s.before + owed)});
     }
 
-    /// @notice Reserve a lock's remaining days at its new amount and fee. Called after a level-up.
-    function reserveRemaining(uint256 tokenId) external onlyLocking {
-        IVyraLocking.Lock memory l = locking.lockOf(tokenId);
-        _reserve(tokenId, l, rewardPerDay(l) * (l.durationDays - claimedDays[l.lockId]));
-    }
-
-    /// @notice Pay out the rewards a running lock has earned so far (before a level-up).
+    /// @notice Pay out what a running lock has earned so far (before a level-up).
     function settle(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         reward = _accrue(tokenId, l);
         if (reward > 0) l.token.safeTransfer(l.owner, reward);
     }
 
-    /// @notice Close a finished lock: pay out its remaining rewards. Its payment stays in the pool.
+    /// @notice Close a finished lock: pay out its remaining days.
     function close(uint256 tokenId) external onlyLocking nonReentrant returns (uint256 reward) {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         reward = _accrue(tokenId, l);
@@ -287,10 +319,22 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     function _accrueTo(uint256 tokenId, IVyraLocking.Lock memory l, uint16 due) internal returns (uint256 amount) {
         uint16 done = claimedDays[l.lockId];
         if (due <= done) return 0;
-        amount = rewardPerDay(l) * (due - done);
+        amount = _slice(l, done, due);
         claimedDays[l.lockId] = due;
         reservedOf[l.token] -= amount;
         paidOutOf[l.token] += amount;
         emit Claimed(l.owner, tokenId, l.lockId, due - done, amount);
+    }
+
+    /// @dev Part of the current schedule owed through day `day` (never before the schedule's start).
+    ///      Cumulative, so a schedule's slices always add up to exactly its total.
+    function _owedThrough(IVyraLocking.Lock memory l, uint16 day) internal view returns (uint256) {
+        Schedule memory s = scheduleOf[l.lockId];
+        return uint256(s.total) * (day - s.from) / (l.durationDays - s.from);
+    }
+
+    /// @dev Payout for days (`done`, `due`].
+    function _slice(IVyraLocking.Lock memory l, uint16 done, uint16 due) internal view returns (uint256) {
+        return _owedThrough(l, due) - _owedThrough(l, done);
     }
 }

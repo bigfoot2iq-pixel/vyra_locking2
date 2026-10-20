@@ -1919,6 +1919,24 @@ export const vyraRewardPoolAbi = [
   },
   {
     "type": "function",
+    "name": "extend",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "added",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "locking",
     "inputs": [],
     "outputs": [
@@ -2091,7 +2109,7 @@ export const vyraRewardPoolAbi = [
   },
   {
     "type": "function",
-    "name": "release",
+    "name": "remainingOf",
     "inputs": [
       {
         "name": "tokenId",
@@ -2099,8 +2117,14 @@ export const vyraRewardPoolAbi = [
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2112,19 +2136,6 @@ export const vyraRewardPoolAbi = [
   {
     "type": "function",
     "name": "reserve",
-    "inputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "reserveRemaining",
     "inputs": [
       {
         "name": "tokenId",
@@ -2224,6 +2235,35 @@ export const vyraRewardPoolAbi = [
       }
     ],
     "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "scheduleOf",
+    "inputs": [
+      {
+        "name": "lockId",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "total",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "from",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "before",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2334,6 +2374,77 @@ export const vyraRewardPoolAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "tributeOf",
+    "inputs": [
+      {
+        "name": "l",
+        "type": "tuple",
+        "internalType": "struct IVyraLocking.Lock",
+        "components": [
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "tier",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "level",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "rateBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "durationDays",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "start",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
+            "name": "lockId",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "amount",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "contract IERC20"
+          },
+          {
+            "name": "fee",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -2498,31 +2609,6 @@ export const vyraRewardPoolAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "Released",
-    "inputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "lockId",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false

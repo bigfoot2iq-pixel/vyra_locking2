@@ -161,22 +161,23 @@ contract MainnetForkTest is Test {
     // ---------------------------------------------------------------- rewards
 
     function test_claimPaysExactDailyRewardsOnce() public {
-        _lock(BOB, LEGEND, 100e18, 0); // Legendary 14%/day
+        _lock(BOB, LEGEND, 100e18, 0); // Legendary 14%/day: 100 back + 98 over 7 days
+        uint256 twoDays = uint256(198e18) * 2 / 7;
         vm.warp(block.timestamp + 2 days + 23 hours);
-        assertEq(POOL.pendingOf(LEGEND), 28e18, "2 full days only");
+        assertEq(POOL.pendingOf(LEGEND), twoDays, "2 full days only");
 
         uint256 before = TOKEN.balanceOf(BOB);
         vm.prank(BOB);
         POOL.claim(_one(LEGEND));
-        assertEq(TOKEN.balanceOf(BOB) - before, 28e18);
+        assertEq(TOKEN.balanceOf(BOB) - before, twoDays);
         assertEq(POOL.pendingOf(LEGEND), 0);
 
         vm.prank(BOB);
         POOL.claim(_one(LEGEND)); // nothing new: no double pay
-        assertEq(TOKEN.balanceOf(BOB) - before, 28e18);
+        assertEq(TOKEN.balanceOf(BOB) - before, twoDays);
 
         vm.warp(block.timestamp + 30 days); // capped at the 7-day period
-        assertEq(POOL.pendingOf(LEGEND), 5 * 14e18);
+        assertEq(POOL.pendingOf(LEGEND), 198e18 - twoDays);
     }
 
     function test_strangerCannotClaimOrUnlockOrLevelUp() public {
@@ -195,9 +196,10 @@ contract MainnetForkTest is Test {
     // ---------------------------------------------------------------- level up
 
     function test_levelUpChargesDifferenceAndKeepsEndDate() public {
-        _lock(ALICE, COMMON, 5e18, 0);
+        _lock(ALICE, COMMON, 5e18, 0); // 5 back + 1.75 over 7 days
         uint40 start = LOCKING.lockOf(COMMON).start;
         vm.warp(block.timestamp + 3 days + 1 hours);
+        uint256 earned = uint256(6.75e18) * 3 / 7;
 
         uint256 poolBefore = TOKEN.balanceOf(address(POOL));
         uint256 aliceBefore = TOKEN.balanceOf(ALICE);
@@ -208,11 +210,12 @@ contract MainnetForkTest is Test {
         assertEq(l.level, 1);
         assertEq(l.amount, 15e18);
         assertEq(l.start, start, "end date unchanged");
-        assertEq(aliceBefore - TOKEN.balanceOf(ALICE), 13e18 - 0.75e18, "paid 13, received 0.75 earned");
-        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 13e18 - 0.75e18);
+        assertEq(aliceBefore - TOKEN.balanceOf(ALICE), 13e18 - earned, "paid 13, received 3 days earned");
+        assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 13e18 - earned);
 
         vm.warp(start + 7 days);
-        assertEq(POOL.pendingOf(COMMON), 4 * 0.9e18, "remaining 4 days at (15 + 3 fee) x 5%");
+        // the rest of the first 6.75, plus the 13 added back with 4 days at 5% on it
+        assertEq(POOL.pendingOf(COMMON), 6.75e18 - earned + 15.6e18);
     }
 
     function test_levelUpRejectsInvalidMoves() public {
@@ -243,7 +246,7 @@ contract MainnetForkTest is Test {
         vm.prank(ALICE);
         LOCKING.unlock(_one(UNCOMMON));
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - before, 7 * 0.6e18, "all 7 days paid");
+        assertEq(TOKEN.balanceOf(ALICE) - before, 14.2e18, "10 back + 7 days at 6%");
         assertEq(LOCKING.lockedTokensOf(ALICE).length, 0);
     }
 
@@ -260,8 +263,8 @@ contract MainnetForkTest is Test {
         LOCKING.emergencyReturnAll(10);
         assertEq(NFT.ownerOf(UNCOMMON), ALICE, "alice's guardian back home");
         assertEq(NFT.ownerOf(LEGEND), BOB, "bob's guardian back home");
-        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 7 * 0.6e18, "full period paid");
-        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 7 * 7e18, "full period paid");
+        assertEq(TOKEN.balanceOf(ALICE) - aliceBefore, 14.2e18, "full period paid");
+        assertEq(TOKEN.balanceOf(BOB) - bobBefore, 99e18, "full period paid");
         assertEq(LOCKING.allLockedCount(), 0);
         assertEq(POOL.totalReserved(), 0);
     }
@@ -276,9 +279,7 @@ contract MainnetForkTest is Test {
         LOCKING.renew(_one(COMMON), _one(25e18), levels);
         assertEq(NFT.ownerOf(COMMON), address(LOCKING));
         assertEq(LOCKING.lockOf(COMMON).level, 2);
-        assertEq(
-            before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 7 * 0.25e18, "new payment minus old rewards"
-        );
+        assertEq(before - TOKEN.balanceOf(ALICE), 25e18 + 7e18 - 6.75e18, "new payment minus old payout");
     }
 
     function test_unlockedGuardianCanStillBeTransferredByHolder() public {
@@ -332,7 +333,7 @@ contract MainnetForkTest is Test {
     }
 
     function test_ownerCannotWithdrawReservedRewards() public {
-        _lock(BOB, LEGEND, 100e18, 0); // Bob pays 100, 98 reserved for him
+        _lock(BOB, LEGEND, 100e18, 0); // Bob pays 100, 100 + 98 reserved for him
 
         uint256 free = POOL.available();
         vm.prank(OWNER);
@@ -345,6 +346,6 @@ contract MainnetForkTest is Test {
         uint256 before = TOKEN.balanceOf(BOB);
         vm.prank(BOB);
         LOCKING.unlock(_one(LEGEND));
-        assertEq(TOKEN.balanceOf(BOB) - before, 98e18, "Bob still paid in full");
+        assertEq(TOKEN.balanceOf(BOB) - before, 198e18, "Bob still paid in full");
     }
 }

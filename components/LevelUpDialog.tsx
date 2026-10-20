@@ -2,7 +2,7 @@
 
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, formatUnits, parseUnits } from "viem";
-import type { Guardian } from "@/hooks/useGuardians";
+import { lockDaily, lockEarnedThrough, lockTotal, type Guardian } from "@/hooks/useGuardians";
 import type { Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
@@ -67,10 +67,12 @@ export function LevelUpDialog({
   const rate = BigInt(l.rateBps);
   const elapsedDays = Math.min(Math.floor((now - l.start) / DAY), l.durationDays);
   const remaining = BigInt(l.durationDays - elapsedDays);
-  // tribute is the rate on amount + fee; after the level-up the fee is the new level's full price
-  const oldDaily = ((l.amount + l.fee) * rate) / BPS;
-  const newDaily = ((a + (target?.price ?? l.fee)) * rate) / BPS;
-  const extra = newDaily > oldDaily ? (newDaily - oldDaily) * remaining : 0n;
+  // what is paid now comes back over the remaining days, with the rate on it for each of them;
+  // the days earned so far are paid out first, the rest of the old payout carries on
+  const extra = (pay * rate * remaining) / BPS;
+  const oldDaily = lockDaily(l);
+  const left = lockTotal(l) - lockEarnedThrough(l, elapsedDays);
+  const newDaily = remaining > 0n ? (left + pay + extra) / remaining : oldDaily;
 
   // An approval made in this dialog counts right away, even if the RPC hasn't caught up yet.
   const [approved, setApproved] = useState(0n);
@@ -79,8 +81,8 @@ export function LevelUpDialog({
   const checking = p.allowanceLocking === undefined;
   const needToken = (p.allowanceLocking ?? 0n) < pay && approved < pay;
   const short = p.balance !== undefined && p.balance < pay;
-  // the extra tribute is backed by the pool's free fund, which this payment joins first
-  const poolShort = p.poolAvailable !== undefined && extra > p.poolAvailable + pay;
+  // the payment joins the free fund first, so only the extra profit needs covering
+  const poolShort = p.poolAvailable !== undefined && extra > p.poolAvailable;
   const pending = g.pending ?? 0n;
   const endDate = new Date(l.end * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -213,17 +215,20 @@ export function LevelUpDialog({
               </div>
               <div className="total">
                 <span>
-                  Tribute {fmtToken(oldDaily, p.decimals)} → {fmtToken(newDaily, p.decimals)}/day ({bpsToPct(rate)} of
-                  amount + fee) · {remaining.toString()} days left
+                  You get every day · {remaining.toString()} days left
                 </span>
                 <span style={{ color: "var(--tier)" }}>
-                  +{fmtToken(extra, p.decimals)} {p.symbol}
+                  {fmtToken(oldDaily, p.decimals)} → {fmtToken(newDaily, p.decimals)} {p.symbol}
                 </span>
               </div>
               {pay > 0n && (
                 <div className="pay-back">
-                  <span>Extra tribute on what you pay now</span>
-                  <span>+{bpsToPct((extra * 10_000n) / pay)}</span>
+                  <span>
+                    Extra profit · what you pay now comes back with {bpsToPct(rate)} a day
+                  </span>
+                  <span>
+                    +{fmtToken(extra, p.decimals)} {p.symbol} · +{bpsToPct((extra * 10_000n) / pay)}
+                  </span>
                 </div>
               )}
             </div>
@@ -233,7 +238,7 @@ export function LevelUpDialog({
               <span>
                 {pending > 0n && (
                   <>
-                    Your {fmtToken(pending, p.decimals)} {p.symbol} of earned tribute is paid out now.{" "}
+                    Your {fmtToken(pending, p.decimals)} {p.symbol} already earned is paid out now.{" "}
                   </>
                 )}
                 The lock still ends {endDate}.
@@ -243,7 +248,7 @@ export function LevelUpDialog({
             {amount !== undefined && !inRange && <p className="notice notice-danger">Amount must be within Level {level + 1}&apos;s range.</p>}
             <ShortNotice protocol={p} pay={pay} />
             {poolShort && (
-              <p className="notice notice-warn">The reward pool can&apos;t back this much extra tribute right now. Try a smaller top-up.</p>
+              <p className="notice notice-warn">The reward pool can&apos;t back this much extra profit right now. Try a smaller top-up.</p>
             )}
 
             {error && <p className="notice notice-danger">{error}</p>}

@@ -50,24 +50,24 @@ contract TokenSwitchTest is Base {
     }
 
     function test_runningLockFinishesInOldToken() public {
-        lockAs(alice, COMMON_ID, 4e18); // 0.2/day for 7 days, paid in `token`
+        lockAs(alice, COMMON_ID, 4e18); // 5.4 over 7 days, paid in `token`
         _switch();
         assertEq(address(locking.lockOf(COMMON_ID).token), address(token));
-        assertEq(pool.reservedOf(token), 1.4e18);
+        assertEq(pool.reservedOf(token), 5.4e18);
         assertEq(pool.totalReserved(), 0, "stats follow the current token");
 
         vm.warp(block.timestamp + 3 days);
         uint256 before = token.balanceOf(alice);
         vm.prank(alice);
         pool.claim(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 0.6e18);
+        assertEq(token.balanceOf(alice) - before, uint256(5.4e18) * 3 / 7);
 
         vm.warp(block.timestamp + 4 days);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 1.4e18, "rewards in the old token");
+        assertEq(token.balanceOf(alice) - before, 5.4e18, "paid back in the old token");
         assertEq(pool.reservedOf(token), 0);
-        assertEq(pool.paidOutOf(token), 1.4e18);
+        assertEq(pool.paidOutOf(token), 5.4e18);
         assertEq(nft.ownerOf(COMMON_ID), alice);
     }
 
@@ -79,17 +79,17 @@ contract TokenSwitchTest is Base {
         assertEq(token.balanceOf(alice), oldBefore, "old token untouched");
         assertEq(newBefore - next.balanceOf(alice), 12e18 + 3e18);
         assertEq(next.balanceOf(address(pool)), SEED + 15e18);
-        assertEq(pool.reservedOf(next), 5.25e18, "5% of (12 + 3 fee) for 7 days");
+        assertEq(pool.reservedOf(next), 20.25e18, "12 + 3 fee back, plus 5% of it for 7 days");
         assertEq(locking.totalLockPayments(), 12e18);
         assertEq(locking.totalLevelPayments(), 3e18);
         assertEq(locking.lockPaymentsOf(token), 0);
     }
 
     function test_newLockCannotDrawOnOldTokenSurplus() public {
-        // rewards in the new token come only from it: the 50 just paid, not the old token's seed
+        // payouts in the new token come only from it: the 50 just paid, not the old token's seed
         _switch();
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.InsufficientPool.selector, 52.5e18, 50e18));
+        vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.InsufficientPool.selector, 102.5e18, 50e18));
         locking.lock(ids(LEGENDARY_ID), ids(50e18), lv(0));
     }
 
@@ -110,11 +110,11 @@ contract TokenSwitchTest is Base {
         vm.prank(alice);
         locking.renew(ids(COMMON_ID), ids(6e18), lv(0));
 
-        assertEq(token.balanceOf(alice) - oldBefore, 1.4e18, "old period paid out in the old token");
+        assertEq(token.balanceOf(alice) - oldBefore, 5.4e18, "old period paid out in the old token");
         assertEq(newBefore - next.balanceOf(alice), 6e18, "new period paid in the new token");
         assertEq(address(locking.lockOf(COMMON_ID).token), address(next));
         assertEq(pool.reservedOf(token), 0);
-        assertEq(pool.reservedOf(next), 2.1e18);
+        assertEq(pool.reservedOf(next), 8.1e18);
 
         // and it can level up again
         vm.prank(alice);
@@ -123,31 +123,31 @@ contract TokenSwitchTest is Base {
     }
 
     function test_claimPaysEachLockInItsOwnToken() public {
-        lockAs(alice, COMMON_ID, 4e18); // old token, 0.2/day
+        lockAs(alice, COMMON_ID, 4e18); // old token, 5.4 over 7 days
         _switchAndSeed();
-        lockAs(alice, COMMON_ID_2, 2e18); // new token, 0.1/day
+        lockAs(alice, COMMON_ID_2, 2e18); // new token, 2.7 over 7 days
         vm.warp(block.timestamp + 2 days);
         uint256 oldBefore = token.balanceOf(alice);
         uint256 newBefore = next.balanceOf(alice);
         vm.prank(alice);
         uint256 total = pool.claim(ids(COMMON_ID, COMMON_ID_2));
-        assertEq(total, 0.6e18);
-        assertEq(token.balanceOf(alice) - oldBefore, 0.4e18);
-        assertEq(next.balanceOf(alice) - newBefore, 0.2e18);
+        assertEq(total, uint256(5.4e18) * 2 / 7 + uint256(2.7e18) * 2 / 7);
+        assertEq(token.balanceOf(alice) - oldBefore, uint256(5.4e18) * 2 / 7);
+        assertEq(next.balanceOf(alice) - newBefore, uint256(2.7e18) * 2 / 7);
     }
 
     function test_ownerRecoversOldSurplusButNotOldReserve() public {
-        lockAs(alice, COMMON_ID, 4e18); // pool: SEED + 4 old, 1.4 reserved
+        lockAs(alice, COMMON_ID, 4e18); // pool: SEED + 4 old, 5.4 reserved
         _switch();
         uint256 free = pool.availableOf(token);
-        assertEq(free, SEED + 4e18 - 1.4e18);
+        assertEq(free, SEED + 4e18 - 5.4e18);
 
         vm.startPrank(owner);
         vm.expectRevert(abi.encodeWithSelector(VyraRewardPool.ExceedsSurplus.selector, free + 1, free));
         pool.withdrawSurplusOf(token, owner, free + 1);
         pool.withdrawSurplusOf(token, owner, free);
         vm.stopPrank();
-        assertEq(token.balanceOf(address(pool)), 1.4e18);
+        assertEq(token.balanceOf(address(pool)), 5.4e18);
         assertEq(pool.withdrawnOf(token), free);
 
         // the old lock still gets everything it was promised
@@ -163,7 +163,7 @@ contract TokenSwitchTest is Base {
         uint256 before = token.balanceOf(alice);
         vm.prank(owner);
         locking.emergencyReturn(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 1.4e18);
+        assertEq(token.balanceOf(alice) - before, 5.4e18);
         assertEq(pool.reservedOf(token), 0);
     }
 
@@ -183,7 +183,7 @@ contract TokenSwitchTest is Base {
         _switch();
         vm.prank(owner);
         locking.setToken(token);
-        assertEq(pool.totalReserved(), 1.4e18);
+        assertEq(pool.totalReserved(), 5.4e18);
         assertEq(locking.totalLockPayments(), 4e18);
         // same token again: level-up works
         vm.prank(alice);

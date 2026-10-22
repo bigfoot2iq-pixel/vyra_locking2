@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, erc721Abi, formatUnits, parseUnits } from "viem";
 import type { Guardian } from "@/hooks/useGuardians";
-import { dailyPayout, lockTribute, type Protocol } from "@/hooks/useProtocol";
+import { dailyPayout, levelFeeDue, levelOpen, lockTribute, minLock, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -51,12 +51,16 @@ export function LockDialog({
 
   const cfg = p.tiers?.[g.tier];
   const levels = cfg?.levels ?? [];
-  const [level, setLevel] = useState(0);
+  // Level access belongs to the guardian: it keeps the level it was unlocked at, lock after lock.
+  const access = g.access;
+  const owned = access?.level ?? 0;
+  const startLevel = access && access.level > 0 && levels[access.level]?.maxAmount > 0n ? access.level : 0;
+  const [level, setLevel] = useState(startLevel);
   const lv = levels[level];
-  const min = lv?.minAmount ?? 0n;
+  const min = minLock(p.decimals);
   const max = lv?.maxAmount ?? 0n;
-  const fee = lv?.price ?? 0n;
-  const [input, setInput] = useState(() => formatUnits(levels[0]?.maxAmount ?? 0n, p.decimals));
+  const fee = levelFeeDue(cfg, access, level);
+  const [input, setInput] = useState(() => formatUnits(levels[startLevel]?.maxAmount ?? 0n, p.decimals));
 
   const amount = safeParse(input, p.decimals);
   const inRange = amount !== undefined && amount >= min && amount <= max;
@@ -66,9 +70,9 @@ export function LockDialog({
   const rate = BigInt(cfg?.dailyRateBps ?? 0);
   const a = amount ?? 0n;
   const pay = a + fee;
-  // everything paid comes back, plus the rate on all of it each day, in equal daily payouts
-  const daily = dailyPayout(a, fee, rate, days);
-  const total = lockTribute(a, fee, rate, days);
+  // everything the lock puts in comes back, plus the rate on the locked amount each day, in equal daily payouts
+  const daily = dailyPayout(a, rate, days);
+  const total = lockTribute(a, rate, days);
 
   // Approvals made in this dialog count right away, even if the RPC hasn't caught up yet.
   const [granted, setGranted] = useState(false);
@@ -187,7 +191,8 @@ export function LockDialog({
           <span className="field-label">Level</span>
           <div className="level-picker" role="radiogroup" aria-label="Level">
             {levels.map((l, i) => {
-              const open = l.maxAmount > 0n && (i === 0 || l.price > 0n);
+              const due = levelFeeDue(cfg, access, i);
+              const open = levelOpen(cfg, access, i);
               return (
                 <button
                   key={i}
@@ -199,7 +204,9 @@ export function LockDialog({
                 >
                   <span className="level-tile-name">Lv {i + 1}</span>
                   <span className="level-tile-cap num">{open ? `≤ ${fmtToken(l.maxAmount, p.decimals, 0)}` : "—"}</span>
-                  <span className="level-tile-fee num">{!open ? "closed" : i === 0 ? "free" : `+${fmtToken(l.price, p.decimals)}`}</span>
+                  <span className="level-tile-fee num">
+                    {!open ? "closed" : due > 0n ? `+${fmtToken(due, p.decimals)}` : i === 0 ? "free" : "unlocked"}
+                  </span>
                 </button>
               );
             })}
@@ -260,6 +267,16 @@ export function LockDialog({
           tribute={total}
           tributeLabel={days === 1n ? "1 day" : `${days.toString()} days`}
         />
+
+        {owned > 0 && (
+          <p className="notice" style={{ marginTop: 0 }}>
+            <span className="gem-sm" />
+            <span>
+              Level {owned + 1} is already unlocked for this guardian, so locking it again is free. The level stays with
+              the guardian, lock after lock.
+            </span>
+          </p>
+        )}
 
         {mode === "renew" && g.lock && unclaimed > 0n && (
           <p className="notice" style={{ marginTop: 0 }}>

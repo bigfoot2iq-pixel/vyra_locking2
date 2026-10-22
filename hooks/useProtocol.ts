@@ -17,15 +17,21 @@ const validatorAbi = parseAbi([
 ]);
 
 export interface Level {
-  minAmount: bigint;
+  /** Cap on the lock amount; a level never sets a floor. */
   maxAmount: bigint;
-  /** Fee to lock at this level; level 1 is always 0. */
+  /** Fee to unlock this level; level 1 is always 0. */
   price: bigint;
 }
 
 export interface TierConfig {
   dailyRateBps: number;
   levels: readonly Level[];
+}
+
+/** Level access bought for a guardian: the highest level it may use for free, and what it cost. */
+export interface LevelAccess {
+  level: number;
+  feePaid: bigint;
 }
 
 /** Everything global about the Keep plus the connected wallet's balances/approvals. */
@@ -145,27 +151,54 @@ export function topLevel(cfg: TierConfig | undefined): number {
   return top;
 }
 
-/** Tribute of a whole lock: its daily rate on everything paid for it (amount + level fee), times its days. The profit. */
-export function lockTribute(amount: bigint, fee: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return ((amount + fee) * BigInt(rateBps) * BigInt(days)) / 10_000n;
+/** The floor of a lock: one whole token. A level only caps the amount, it never raises the floor. */
+export const minLock = (decimals: number) => 10n ** BigInt(decimals);
+
+/**
+ * Whether a level can be picked at all: configured, and either free (level 1) or priced, unless the
+ * guardian already unlocked it.
+ */
+export function levelOpen(cfg: TierConfig | undefined, access: LevelAccess | undefined, level: number): boolean {
+  const lv = cfg?.levels[level];
+  if (!lv || lv.maxAmount <= 0n) return false;
+  if (level === 0) return true;
+  if ((access?.level ?? 0) >= level) return true;
+  return lv.price > 0n;
 }
 
-/** Everything a lock pays back over its period: the payment (amount + fee) plus its tribute (the pool's `maxReward`). */
-export function lockPayout(amount: bigint, fee: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return amount + fee + lockTribute(amount, fee, rateBps, days);
+/**
+ * What locking a guardian at `level` still costs on top of the amount: the level's price minus what
+ * the guardian's level access already paid. Nothing when the level is already unlocked.
+ */
+export function levelFeeDue(cfg: TierConfig | undefined, access: LevelAccess | undefined, level: number): bigint {
+  const price = cfg?.levels[level]?.price ?? 0n;
+  const owned = access?.level ?? 0;
+  if (level <= owned) return 0n;
+  const paid = access?.feePaid ?? 0n;
+  return price > paid ? price - paid : 0n;
+}
+
+/** Tribute of a whole lock: its daily rate on the amount it locked, times its days. The profit. */
+export function lockTribute(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
+  return (amount * BigInt(rateBps) * BigInt(days)) / 10_000n;
+}
+
+/** Everything a lock pays back over its period: the locked amount plus its tribute. */
+export function lockPayout(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
+  return amount + lockTribute(amount, rateBps, days);
 }
 
 /** What a lock pays each day: its whole payout spread evenly over its days (the pool's `rewardPerDay`). */
-export function dailyPayout(amount: bigint, fee: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return BigInt(days) > 0n ? lockPayout(amount, fee, rateBps, days) / BigInt(days) : 0n;
+export function dailyPayout(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
+  return BigInt(days) > 0n ? lockPayout(amount, rateBps, days) / BigInt(days) : 0n;
 }
 
-/** The biggest lock a tier allows: its top level's max amount + fee, what it pays back and pays a day. */
+/** The biggest lock a tier allows: its top level's cap + fee, what it pays back and pays a day. */
 export function bestLock(cfg: TierConfig | undefined, durationDays: number | bigint | undefined) {
   const top = topLevel(cfg);
   if (!cfg || top < 0 || durationDays === undefined) return undefined;
   const lv = cfg.levels[top];
-  const args = [lv.maxAmount, lv.price, cfg.dailyRateBps, durationDays] as const;
+  const args = [lv.maxAmount, cfg.dailyRateBps, durationDays] as const;
   return { level: top, paid: lv.maxAmount + lv.price, tribute: lockTribute(...args), payout: lockPayout(...args), daily: dailyPayout(...args) };
 }
 

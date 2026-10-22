@@ -123,7 +123,7 @@ function PoolCard({ p }: { p: Protocol }) {
   const free = p.poolAvailable ?? 0n;
   const pctOf = (v: bigint) => (bal > 0n ? Number((v * 1000n) / bal) / 10 : 0);
   const reservedPct = pctOf(reserved);
-  // the pool's own economy: holders' payments in, payouts (payments back + tribute) out, deposits and
+  // the pool's own economy: holders' payments in, payouts (amount back + tribute) out, deposits and
   // withdrawals aside. Once every lock has paid out it equals minus the tribute paid: the fund's cost.
   const net = paidIn - (p.totalPaidOut ?? 0n);
   // tiers whose biggest single lock the free fund couldn't back right now; the lock's own payment
@@ -139,10 +139,10 @@ function PoolCard({ p }: { p: Protocol }) {
     <div className="admin-card plate wide">
       <h3>Reward pool</h3>
       <p>
-        Every lock payment (amount + level fee) lands here, next to your seed and deposits. Over the lock it all goes back
-        to the holder in equal daily payouts, plus the tier&apos;s daily rate on amount + fee: that tribute is the profit,
-        and it is paid from the free fund (your seed). The full payout is reserved when a lock starts. Only the free fund
-        can back new locks or be withdrawn by the owner; reserved payouts never can.
+        Every lock payment (amount + level fee) lands here, next to your seed and deposits. Over the lock the amount goes
+        back to the holder in equal daily payouts, plus the tier&apos;s daily rate on it: that tribute is the profit, and it
+        is paid from the free fund (your seed). The level fee stays in the pool. The full payout is reserved when a lock
+        starts. Only the free fund can back new locks or be withdrawn by the owner; reserved payouts never can.
       </p>
       {p.poolBalance === 0n && (
         <p className="notice notice-warn">The pool is empty. Add a {p.symbol} balance below so holders who lock can be paid.</p>
@@ -200,7 +200,7 @@ function PoolCard({ p }: { p: Protocol }) {
           <dd>{fmt(p.totalDeposited)}</dd>
         </dl>
         <dl className="kv num">
-          <dt>Paid to holders (payments back + tribute)</dt>
+          <dt>Paid to holders (amount back + tribute)</dt>
           <dd>{fmt(p.totalPaidOut)}</dd>
           <dt>Withdrawn by owner</dt>
           <dd>{fmt(p.totalWithdrawn)}</dd>
@@ -275,7 +275,6 @@ function PoolCard({ p }: { p: Protocol }) {
 // ---------------------------------------------------------------- tiers & levels
 
 interface LevelDraft {
-  min: string;
   max: string;
   price: string;
 }
@@ -284,12 +283,11 @@ interface TierDraft {
   levels: LevelDraft[];
 }
 
-function validateTier(t: { dailyRateBps?: number; levels: { minAmount?: bigint; maxAmount?: bigint; price?: bigint }[] }) {
+function validateTier(t: { dailyRateBps?: number; levels: { maxAmount?: bigint; price?: bigint }[] }) {
   const errs: string[] = Array(LEVEL_COUNT).fill("");
   if (t.dailyRateBps === undefined || t.dailyRateBps > 10_000) errs[0] = "daily % must be 0–100";
   t.levels.forEach((lv, i) => {
-    if (lv.minAmount === undefined || lv.maxAmount === undefined || lv.price === undefined) return (errs[i] = "invalid number");
-    if (lv.minAmount > lv.maxAmount) return (errs[i] = "min > max");
+    if (lv.maxAmount === undefined || lv.price === undefined) return (errs[i] = "invalid number");
     if (i === 0 && lv.price !== 0n) return (errs[i] = "level 1 is free");
     if (i > 0) {
       const prev = t.levels[i - 1];
@@ -311,7 +309,6 @@ function TiersCard({ p }: { p: Protocol }) {
     p.tiers?.map((t) => ({
       rate: String(t.dailyRateBps / 100),
       levels: t.levels.map((lv) => ({
-        min: formatUnits(lv.minAmount, p.decimals),
         max: formatUnits(lv.maxAmount, p.decimals),
         price: formatUnits(lv.price, p.decimals),
       })),
@@ -321,7 +318,6 @@ function TiersCard({ p }: { p: Protocol }) {
   const parsed = draft.map((t) => ({
     dailyRateBps: pctToBps(t.rate),
     levels: t.levels.map((lv) => ({
-      minAmount: toUnits(lv.min || "0", p.decimals),
       maxAmount: toUnits(lv.max || "0", p.decimals),
       price: toUnits(lv.price || "0", p.decimals),
     })),
@@ -343,10 +339,11 @@ function TiersCard({ p }: { p: Protocol }) {
     <div className="admin-card plate wide">
       <h3>Tiers &amp; levels</h3>
       <p>
-        Each rarity tier has one daily tribute % and 5 levels. A level sets how much a holder may lock; the holder picks it when
-        locking and pays amount + fee into the reward fund; all of it comes back in daily payouts over the lock. Level 1 is
-        free. Max 0 closes a level. Tribute (daily % × days of amount + fee) is paid on top from the free fund, so every %
-        here is a cost to the fund.
+        Each rarity tier has one daily tribute % and 5 levels. A level caps how much a holder may lock; the holder picks it
+        when locking and pays the amount into the reward fund, and all of it comes back in daily payouts over the lock.
+        Level 1 is free. Max 0 closes a level. The level fee buys that level for the guardian for good and stays in the
+        pool. Tribute (daily % × days of the amount locked) is paid on top from the free fund, so every % here is a cost to
+        the fund.
         {usd !== undefined && (
           <>
             {" "}
@@ -396,7 +393,6 @@ function TiersCard({ p }: { p: Protocol }) {
                 <thead>
                   <tr>
                     <th>Level</th>
-                    <th>Min lock</th>
                     <th>Max lock</th>
                     <th>Level fee</th>
                     <th />
@@ -407,10 +403,6 @@ function TiersCard({ p }: { p: Protocol }) {
                     return (
                       <tr key={li}>
                         <td style={{ color: "var(--tier)" }}>Level {li + 1}</td>
-                        <td>
-                          <input className="input input-sm" value={lv.min} onChange={(e) => setLevel(ti, li, "min", e.target.value)} />
-                          <span className="faint num">{usdOf(lv.min)}</span>
-                        </td>
                         <td>
                           <input className="input input-sm" value={lv.max} onChange={(e) => setLevel(ti, li, "max", e.target.value)} />
                           <span className="faint num">{usdOf(lv.max)}</span>

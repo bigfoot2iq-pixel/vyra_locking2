@@ -10,7 +10,7 @@ import {MockToken} from "../src/mocks/MockToken.sol";
 
 /// Shared deployment + sample config:
 ///   ids 1-2 Legendary, 3-4 Epic, 5-6 Rare, 9-10 Uncommon, everything else Common
-///   Common 5%/day, levels 1-10 | 11-20 (+3) | 21-30 (+7) | 31-40 (+12) | 41-50 (+20)
+///   Common 5%/day, caps 10 | 20 | 30 | 40 | 50, level fees 0 | 3 | 7 | 12 | 20
 abstract contract Base is Test {
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
@@ -71,11 +71,11 @@ abstract contract Base is Test {
     }
 
     function defaultTiers() internal pure returns (VyraLocking.TierConfig[5] memory t) {
-        t[0] = tier(500, [uint128(1), 11, 21, 31, 41], [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 7, 12, 20]);
-        t[1] = tier(600, [uint128(3), 16, 31, 46, 61], [uint128(15), 30, 45, 60, 75], [uint128(0), 4, 9, 14, 22]);
-        t[2] = tier(700, [uint128(5), 21, 41, 61, 81], [uint128(20), 40, 60, 80, 100], [uint128(0), 5, 10, 16, 25]);
-        t[3] = tier(1000, [uint128(10), 41, 81, 121, 161], [uint128(40), 80, 120, 160, 200], [uint128(0), 8, 16, 25, 35]);
-        t[4] = tier(1500, [uint128(50), 101, 151, 201, 251], [uint128(100), 150, 200, 250, 300], [uint128(0), 10, 20, 32, 45]);
+        t[0] = tier(500, [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 7, 12, 20]);
+        t[1] = tier(600, [uint128(15), 30, 45, 60, 75], [uint128(0), 4, 9, 14, 22]);
+        t[2] = tier(700, [uint128(20), 40, 60, 80, 100], [uint128(0), 5, 10, 16, 25]);
+        t[3] = tier(1000, [uint128(40), 80, 120, 160, 200], [uint128(0), 8, 16, 25, 35]);
+        t[4] = tier(1500, [uint128(100), 150, 200, 250, 300], [uint128(0), 10, 20, 32, 45]);
     }
 
     /// Packs `tiers[id]` (index = token id) into 4-bit rarity words, 64 tokens per word.
@@ -86,15 +86,15 @@ abstract contract Base is Test {
         }
     }
 
-    /// Whole-token numbers → 18-decimals config.
-    function tier(uint16 rate, uint128[5] memory mins, uint128[5] memory maxs, uint128[5] memory prices)
+    /// Whole-token numbers → 18-decimals config. A level only caps the amount; the floor is 1.
+    function tier(uint16 rate, uint128[5] memory maxs, uint128[5] memory prices)
         internal
         pure
         returns (VyraLocking.TierConfig memory c)
     {
         c.dailyRateBps = rate;
         for (uint256 i; i < 5; ++i) {
-            c.levels[i] = VyraLocking.Level({minAmount: mins[i] * 1e18, maxAmount: maxs[i] * 1e18, price: prices[i] * 1e18});
+            c.levels[i] = VyraLocking.Level({maxAmount: maxs[i] * 1e18, price: prices[i] * 1e18});
         }
     }
 

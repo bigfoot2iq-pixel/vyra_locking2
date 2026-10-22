@@ -21,7 +21,7 @@ interface ITransferValidator {
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
     /// the Keep live on Ink: source of the frozen rarity map and the tier table
-    VyraLocking constant LIVE = VyraLocking(0x69b02d133aBA37f2AE61BF1fd6C6B894e2FF073d);
+    VyraLocking constant LIVE = VyraLocking(0xA64CBD00486d3a7fF1885Bc4CDA255043fA98fE9);
     VyraLocking LOCKING;
     VyraRewardPool POOL;
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);
@@ -143,7 +143,7 @@ contract MainnetForkTest is Test {
         uint256[] memory amounts = _one(11e18); // above Common L1 max of 10
         uint8[] memory levels = new uint8[](1);
         vm.prank(ALICE);
-        vm.expectRevert(abi.encodeWithSelector(VyraLocking.AmountOutOfRange.selector, COMMON, 11e18, 1e18, 10e18));
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.AmountOutOfRange.selector, COMMON, 11e18, 1, 10e18));
         LOCKING.lock(ids, amounts, levels);
 
         // someone else's guardian
@@ -214,8 +214,8 @@ contract MainnetForkTest is Test {
         assertEq(TOKEN.balanceOf(address(POOL)) - poolBefore, 13e18 - earned);
 
         vm.warp(start + 7 days);
-        // the rest of the first 6.75, plus the 13 added back with 4 days at 5% on it
-        assertEq(POOL.pendingOf(COMMON), 6.75e18 - earned + 15.6e18);
+        // the rest of the first 6.75, plus the 10 added back with 4 days at 5% on it
+        assertEq(POOL.pendingOf(COMMON), 6.75e18 - earned + 12e18);
     }
 
     function test_levelUpRejectsInvalidMoves() public {
@@ -225,8 +225,8 @@ contract MainnetForkTest is Test {
         LOCKING.levelUp(COMMON, 0, 15e18); // down
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.InvalidLevel.selector, 5));
         LOCKING.levelUp(COMMON, 5, 50e18); // past top
-        vm.expectRevert();
-        LOCKING.levelUp(COMMON, 2, 20e18); // below L3 min of 21
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.AmountOutOfRange.selector, COMMON, 40e18, 1, 30e18));
+        LOCKING.levelUp(COMMON, 2, 40e18); // above L3's cap of 30
         vm.warp(block.timestamp + 7 days);
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.LockEnded.selector, COMMON));
         LOCKING.levelUp(COMMON, 2, 25e18); // after end
@@ -274,7 +274,7 @@ contract MainnetForkTest is Test {
         vm.warp(block.timestamp + 7 days);
         uint256 before = TOKEN.balanceOf(ALICE);
         uint8[] memory levels = new uint8[](1);
-        levels[0] = 2; // L3: 21-30, fee 7
+        levels[0] = 2; // L3: up to 30, fee 7
         vm.prank(ALICE);
         LOCKING.renew(_one(COMMON), _one(25e18), levels);
         assertEq(NFT.ownerOf(COMMON), address(LOCKING));

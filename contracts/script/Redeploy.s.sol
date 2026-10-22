@@ -6,6 +6,22 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {VyraLocking} from "../src/VyraLocking.sol";
 import {VyraRewardPool} from "../src/VyraRewardPool.sol";
 
+/// @dev The Keep being replaced still carries a per-level minimum in its tier table. Read it with the
+///      shape it was written with, then keep only the cap and the price.
+interface IOldVyraLocking {
+    struct OldLevel {
+        uint128 minAmount;
+        uint128 maxAmount;
+        uint128 price;
+    }
+    struct OldTierConfig {
+        uint16 dailyRateBps;
+        OldLevel[5] levels;
+    }
+
+    function tierConfigs() external view returns (OldTierConfig[5] memory);
+}
+
 /// @notice Replaces a live Keep with fresh contracts built from this source. Env:
 ///   OLD_LOCKING   the Keep being replaced; the broadcaster must own it and its pool
 /// Copies everything from the old Keep (NFT, token, rarity map, tiers and levels, duration,
@@ -23,6 +39,18 @@ contract Redeploy is Script {
         require(old.allLockedCount() == 0, "old Keep still holds locks");
         require(oldPool.totalReserved() == 0, "old pool still owes payouts");
         uint256[] memory words = old.rarityWords(0, RARITY_WORDS);
+        // the old table has a per-level minimum; the new one only caps the amount
+        VyraLocking.TierConfig[5] memory tiers;
+        IOldVyraLocking.OldTierConfig[5] memory oldTiers = IOldVyraLocking(address(old)).tierConfigs();
+        for (uint256 i; i < 5; ++i) {
+            tiers[i].dailyRateBps = oldTiers[i].dailyRateBps;
+            for (uint256 j; j < 5; ++j) {
+                tiers[i].levels[j] = VyraLocking.Level({
+                    maxAmount: oldTiers[i].levels[j].maxAmount,
+                    price: oldTiers[i].levels[j].price
+                });
+            }
+        }
 
         vm.startBroadcast();
         address me = msg.sender;
@@ -34,7 +62,7 @@ contract Redeploy is Script {
         locking.setRarityWords(0, words);
         if (old.rarityLocked()) locking.lockRarity();
         locking.setToken(token);
-        locking.setTierConfigs(old.tierConfigs());
+        locking.setTierConfigs(tiers);
         if (old.durationDays() != locking.durationDays()) locking.setDurationDays(old.durationDays());
 
         if (!old.paused()) old.pause();
@@ -47,7 +75,7 @@ contract Redeploy is Script {
         vm.stopBroadcast();
 
         // the copy must match the old Keep exactly
-        require(keccak256(abi.encode(locking.tierConfigs())) == keccak256(abi.encode(old.tierConfigs())), "tiers");
+        require(keccak256(abi.encode(locking.tierConfigs())) == keccak256(abi.encode(tiers)), "tiers");
         require(keccak256(abi.encode(locking.rarityWords(0, RARITY_WORDS))) == keccak256(abi.encode(words)), "rarity");
 
         console.log("VyraRewardPool:", address(pool));

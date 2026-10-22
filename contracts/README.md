@@ -2,8 +2,8 @@
 
 | Contract | Role |
 |---|---|
-| `VyraLocking` | Holds locked NFTs, the on-chain rarity map, 5 levels per tier, lock / renew / unlock with a level chosen per lock, and level-ups on running locks. Never holds tokens. |
-| `VyraRewardPool` | The single treasury. Receives **100%** of lock amounts and level fees plus anyone's deposits, and keeps them; pays holders' daily rewards on **amount + fee**; only the owner can withdraw, and only the **unreserved surplus**. |
+| `VyraLocking` | Holds locked NFTs, the on-chain rarity map, 5 levels per tier, lock / renew / unlock with a level chosen per lock, and level-ups on running locks. Level access belongs to the guardian. Never holds tokens. |
+| `VyraRewardPool` | The single treasury. Receives **100%** of lock amounts and level fees plus anyone's deposits, and keeps them; pays holders' daily rewards on the **amount locked**; only the owner can withdraw, and only the **unreserved surplus**. |
 
 ## Rules
 
@@ -11,21 +11,21 @@
   - Stored as a packed per-token map: 4 bits per guardian, 18 storage words for all 1,111.
   - The data lives in `data/vyra-rarity.json`, built by `node scripts/build-rarity.mjs <metadata-dir>` from the collection metadata (`ipfs://QmZa81…/{id}`).
   - `setRarityWords` uploads it, and `lockRarity()` freezes it forever.
-- **Levels:** every tier has one `dailyRateBps` and 5 levels, each with `[minAmount, maxAmount]` and a `price` (the level fee).
+- **Levels:** every tier has one `dailyRateBps` and 5 levels, each with a `maxAmount` (the cap) and a `price` (the level fee).
   - Level 1 is free (`price = 0`).
   - Caps and fees never go down from one level to the next, and there are no gaps.
   - `maxAmount = 0` closes a level. If Level 1 is closed, the whole tier is closed.
-- **Lock:** the holder picks an amount inside their level's range. The contract enforces the range, so nobody can pay in more than the owner allows. The amount and the level fee go to the pool and **stay there**; they are not returned. Nothing is burned.
+- **Lock:** the holder picks an amount from 1 up to their level's cap. The contract enforces the cap, so nobody can pay in more than the owner allows. The amount goes to the pool and comes back with the rewards; the level fee goes to the pool and **stays there**. Nothing is burned.
 - **Choosing a level:** the holder picks the level in `lock(ids, amounts, levels)` / `renew(ids, amounts, levels)`.
   - Level 1 is free. A higher level costs its fee, paid into the pool on top of the amount.
-  - Rewards are earned on **amount + fee** (`Lock.fee` records the fee paid).
-  - Each lock or renewal picks its level again; nothing is bought before locking.
+  - Rewards are earned on the **amount locked**; the fee earns nothing.
+  - **Level access belongs to the guardian, not to a lock.** The fee buys the level for that NFT (`accessOf(tokenId)`): it stays unlocked after the lock ends, through every renewal, and after the guardian is sold on. Locking at a level the guardian already owns is free.
 - **Level up a running lock:** `levelUp(tokenId, newLevel, newAmount)`.
   - Only while the lock is running, and only to a higher level.
-  - Pays the fee difference (new level fee − current level fee) plus the top-up (`newAmount` − current amount) into the pool.
-  - Tribute earned so far is paid out first. The remaining days earn on `newAmount` + the new level's full fee, and the end date doesn't change.
+  - Pays the fee still due (nothing when the guardian already owns that level) plus the top-up (`newAmount` − current amount) into the pool.
+  - Tribute earned so far is paid out first. The remaining days earn on the new amount, and the end date doesn't change.
   - The pool releases the reserve for the remaining days and reserves them again at the new total.
-- **Rewards:** `(amount + fee) × dailyRateBps` per **full 24h since lock start**. Unclaimed days accumulate, and earning stops at the period end. Example: 100 paid + 5 fee at 10%/day earns 10.5 a day, 73.5 over 7 days.
+- **Rewards:** `amount × dailyRateBps` per **full 24h since lock start**. Unclaimed days accumulate, and earning stops at the period end. Example: 100 locked at 10%/day earns 10 a day, 70 over 7 days.
 - **Period:** default 7 days. No early unlock. After the end, call `unlock` (returns the NFT and pays out the remaining rewards) or `renew` (pays out the remaining rewards, then takes the new payment and starts a new period; the NFT never moves).
 - **Snapshots:** every config change applies to new locks only. Running locks keep their snapshot.
 - **Switching the token:** the owner can call `setToken` again at any time (e.g. a new token after a sniped launch).
@@ -43,7 +43,7 @@
 Every payment (amount + fee) joins the pool's free balance just before the lock's full-period reward is reserved out of it. The balance splits two ways:
 
 - **Reserved:** rewards promised to running locks.
-- **Free fund:** everything else (holders' payments, the owner's seed, deposits). New locks reserve their full-period reward out of it, and the owner can withdraw only from it.
+- **Free fund:** everything else (holders' amounts, the owner's seed, deposits, and the level fees, which stay there). New locks reserve their full-period reward out of it, and the owner can withdraw only from it.
 
 A tier paying ≤ 100% over a period funds itself from the lock's own payment. A tier paying more needs the free fund to cover the excess; a lock it can't cover reverts instead of over-promising. The owner keeps the fund topped up with `deposit`. The admin page flags tiers whose biggest lock the fund can't back.
 
@@ -60,7 +60,7 @@ A tier paying ≤ 100% over a period funds itself from the lock's own payment. A
 - Tests:
   - `forge test` runs the unit/fuzz tests (including the real collection map) plus 4 stateful invariants.
   - The invariants run 256k random locks and renewals at random levels, level-ups, unlocks, claims, emergency returns, owner withdrawals and time jumps and token switches, and every run must include real locks, paid levels and level-ups.
-  - They check that the pool always covers every reserve, that the locking contract never holds tokens, that the global locked set matches the guardians held, that each token's reserve matches its open locks (each earning on amount + fee), and that in = out + held for every token.
+  - They check that the pool always covers every reserve, that the locking contract never holds tokens, that the global locked set matches the guardians held, that each token's reserve matches its open locks (each earning on the amount locked), and that in = out + held for every token.
 
 ## Develop
 

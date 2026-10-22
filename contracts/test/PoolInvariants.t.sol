@@ -70,11 +70,11 @@ contract Handler is Test {
         return bound(seed, 1, 28);
     }
 
-    /// A random level and an amount inside that level's range for the token's tier.
+    /// A random level and an amount inside that level's cap for the token's tier.
     function _pick(uint256 id, uint256 seed) internal view returns (uint8 level, uint256 amount) {
         level = uint8(seed % 5);
         VyraLocking.Level memory l = locking.tierConfig(locking.baseTierOf(id)).levels[level];
-        amount = bound(seed >> 8, l.minAmount, l.maxAmount);
+        amount = bound(seed >> 8, 1, l.maxAmount);
     }
 
     function _lv(uint8 level) internal pure returns (uint8[] memory r) {
@@ -147,9 +147,8 @@ contract Handler is Test {
         uint8 level = uint8(bound(seed, current + 1, 4));
         VyraLocking.Level memory l = locking.tierConfig(locking.baseTierOf(id)).levels[level];
         uint256 locked = locking.lockOf(id).amount;
-        uint256 lo = l.minAmount > locked ? l.minAmount : locked;
-        if (lo > l.maxAmount) return;
-        uint256 amount = bound(seed >> 8, lo, l.maxAmount);
+        if (locked > l.maxAmount) return;
+        uint256 amount = bound(seed >> 8, locked, l.maxAmount);
         vm.prank(holder);
         try locking.levelUp(id, level, amount) {
             ++levelUps;
@@ -238,7 +237,7 @@ contract PoolInvariants is Base {
     }
 
     /// Each token's reserve equals the unpaid payouts of the open locks paid in it, and no lock
-    /// can pay back less than its payment (amount + fee of its level).
+    /// can pay back less than the amount it locked.
     function invariant_reservesMatchLocks() public view {
         MockToken[2] memory ts = _tokens();
         uint256 n = locking.allLockedCount();
@@ -247,7 +246,7 @@ contract PoolInvariants is Base {
         for (uint256 i; i < n; ++i) {
             VyraLocking.Lock memory l = locking.lockOf(all[i]);
             owed[address(l.token) == address(ts[0]) ? 0 : 1] += pool.remainingOf(all[i]);
-            assertGe(pool.maxReward(l), uint256(l.amount) + l.fee);
+            assertGe(pool.maxReward(l), uint256(l.amount));
         }
         for (uint256 i; i < 2; ++i) {
             assertEq(pool.reservedOf(ts[i]), owed[i]);

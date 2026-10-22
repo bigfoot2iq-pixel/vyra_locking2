@@ -21,8 +21,6 @@ export interface LockInfo {
   lockId: bigint;
   /** Tokens paid into the pool for this period; they come back with the daily payouts. */
   amount: bigint;
-  /** Level fee paid for this period; it comes back too, and tribute is earned on amount + fee. */
-  fee: bigint;
   /** Token this period was paid in; its payouts come in the same token. */
   token: Address;
   /** The pool's payout schedule: `total` spread evenly from day `from` to the end; `before` paid earlier. */
@@ -38,6 +36,8 @@ export interface Guardian {
   /** Claimable right now (locked only). */
   pending?: bigint;
   claimedDays?: number;
+  /** Level access bought for this guardian: the highest level it may lock at for free, and what it cost. */
+  access?: { level: number; feePaid: bigint };
 }
 
 /** Ids the wallet holds. Uses ERC721Enumerable when available, else the Blockscout explorer API. */
@@ -144,6 +144,15 @@ export function useGuardians() {
     query: { enabled: enabled && allIds.length > 0, refetchInterval: 30_000 },
   });
 
+  // Level access lives with the guardian, not with a lock: it survives the lock and every renewal.
+  const accessOf = useReadContracts({
+    allowFailure: false,
+    contracts: allIds.map(
+      (id) => ({ address: addresses.locking!, abi: vyraLockingAbi, functionName: "accessOf", args: [id] }) as const,
+    ),
+    query: { enabled: enabled && allIds.length > 0, refetchInterval: 30_000 },
+  });
+
   const locks = useReadContracts({
     allowFailure: false,
     contracts: [
@@ -179,6 +188,8 @@ export function useGuardians() {
       locked,
       tier: Number(info[i] ?? 0),
     };
+    const a = accessOf.data?.[i];
+    if (a) g.access = { level: Number(a[0]), feePaid: a[1] };
     const l = locked ? lockRecords[i] : undefined;
     if (l) {
       g.lock = {
@@ -190,7 +201,6 @@ export function useGuardians() {
         end: Number(l.start) + l.durationDays * DAY,
         lockId: l.lockId,
         amount: l.amount,
-        fee: l.fee,
         token: l.token,
       };
       const s = schedules.data?.[i];
@@ -201,10 +211,10 @@ export function useGuardians() {
     return g;
   });
 
-  const infoReady = allIds.length === 0 || !!perToken.data;
+  const infoReady = allIds.length === 0 || (!!perToken.data && !!accessOf.data);
   const locksReady = lockedIds.length === 0 || !!locks.data;
 
-  const error = wallet.error ?? lockedQ.error ?? perToken.error ?? locks.error;
+  const error = wallet.error ?? lockedQ.error ?? perToken.error ?? accessOf.error ?? locks.error;
   const pending = wallet.isLoading || lockedQ.isLoading || !infoReady || !locksReady;
   // a read that failed before its data arrived would otherwise leave skeletons up forever
   const failed = enabled && pending && !!error;
@@ -228,21 +238,21 @@ export function unclaimedDays(g: Guardian, now: number): number | undefined {
   return Math.max(0, full - g.claimedDays);
 }
 
-/** Everything the lock pays back over its period: payment + tribute, level-ups included. */
+/** Everything the lock pays back over its period: the locked amount plus its tribute, level-ups included. */
 export function lockTotal(l: LockInfo): bigint {
-  return l.schedule ? l.schedule.before + l.schedule.total : lockPayout(l.amount, l.fee, l.rateBps, l.durationDays);
+  return l.schedule ? l.schedule.before + l.schedule.total : lockPayout(l.amount, l.rateBps, l.durationDays);
 }
 
 /** What the lock pays a day now (after a level-up the remaining days pay more). */
 export function lockDaily(l: LockInfo): bigint {
   if (l.schedule) return l.schedule.total / BigInt(Math.max(1, l.durationDays - l.schedule.from));
-  return lockPayout(l.amount, l.fee, l.rateBps, l.durationDays) / BigInt(Math.max(1, l.durationDays));
+  return lockPayout(l.amount, l.rateBps, l.durationDays) / BigInt(Math.max(1, l.durationDays));
 }
 
 /** Paid out (or claimable) through day `day`, as the pool slices it. */
 export function lockEarnedThrough(l: LockInfo, day: number): bigint {
   const d = Math.min(Math.max(0, day), l.durationDays);
-  const s = l.schedule ?? { total: lockPayout(l.amount, l.fee, l.rateBps, l.durationDays), from: 0, before: 0n };
+  const s = l.schedule ?? { total: lockPayout(l.amount, l.rateBps, l.durationDays), from: 0, before: 0n };
   if (d <= s.from) return s.before; // days before a level-up: already paid out in full by then
   return s.before + (s.total * BigInt(d - s.from)) / BigInt(l.durationDays - s.from);
 }

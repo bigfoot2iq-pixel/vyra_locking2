@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, erc721Abi } from "viem";
 import type { Guardian } from "@/hooks/useGuardians";
-import { dailyPayout, lockTribute, maxTribute, type Protocol } from "@/hooks/useProtocol";
+import { dailyPayout, levelFeeDue, levelOpen, lockTribute, maxTribute, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -21,9 +21,11 @@ import { WalletHint } from "./WalletHint";
 
 type StepKey = "nft" | "token" | "act";
 
-/** Levels a new lock can pick: configured, and (past level 1) priced. */
-const openLevels = (p: Protocol, g: Guardian) =>
-  (p.tiers?.[g.tier]?.levels ?? []).flatMap((l, i) => (l.maxAmount > 0n && (i === 0 || l.price > 0n) ? [i] : []));
+/** Levels a new lock can pick: configured, and (past level 1) priced or already unlocked. */
+const openLevels = (p: Protocol, g: Guardian) => {
+  const cfg = p.tiers?.[g.tier];
+  return (cfg?.levels ?? []).flatMap((l, i) => (levelOpen(cfg, g.access, i) ? [i] : []));
+};
 
 /**
  * Locks every chosen idle guardian in one transaction (the contract takes arrays).
@@ -51,13 +53,15 @@ export function LockAllDialog({
   const rows = lockable.map((g) => {
     const key = g.id.toString();
     const cfg = p.tiers![g.tier];
-    const level = levels[key] ?? 0;
+    // a guardian keeps the level it was unlocked at
+    const level = levels[key] ?? (g.access?.level ?? 0);
     const lv = cfg.levels[level];
     const amount = lv.maxAmount;
     const days = p.durationDays ?? 0;
-    const daily = dailyPayout(amount, lv.price, cfg.dailyRateBps, days);
-    const tribute = lockTribute(amount, lv.price, cfg.dailyRateBps, days);
-    return { g, key, level, amount, fee: lv.price, daily, tribute, on: picked.has(key) };
+    const daily = dailyPayout(amount, cfg.dailyRateBps, days);
+    const tribute = lockTribute(amount, cfg.dailyRateBps, days);
+    const fee = levelFeeDue(cfg, g.access, level);
+    return { g, key, level, amount, fee, daily, tribute, on: picked.has(key) };
   });
   const chosen = rows.filter((r) => r.on);
   const sum = (f: (r: (typeof rows)[number]) => bigint) => chosen.reduce((a, r) => a + f(r), 0n);
@@ -164,8 +168,8 @@ export function LockAllDialog({
     <Dialog title={`Lock ${plural(lockable.length, "guardian")}`} kicker={<>◆ Lock all</>} image={leadImage} onClose={onClose}>
       <p className="dim" style={{ margin: "-8px 0 16px", fontSize: "0.84rem" }}>
         Each guardian pays its level&apos;s full amount into the pool. Every day you get part of it back plus its
-        rarity&apos;s rate on amount + fee, so by the end all of it is back with profit on top. Level 1 has no fee.
-        Higher levels earn more
+        rarity&apos;s rate on that amount, so by the end all of it is back with profit on top. Level 1 is free; a level
+        fee buys the level for that guardian and stays in the pool
         {bestUpside > 0n && <>, up to {fmtToken(bestUpside, p.decimals, 0)} {p.symbol} profit across all of them</>}.
       </p>
 
@@ -197,10 +201,11 @@ export function LockAllDialog({
               >
                 {openLevels(p, r.g).map((i) => {
                   const lv = p.tiers![r.g.tier].levels[i];
+                  const due = levelFeeDue(p.tiers![r.g.tier], r.g.access, i);
                   return (
                     <option key={i} value={i}>
                       Lv {i + 1} · {fmtToken(lv.maxAmount, p.decimals, 0)}
-                      {i === 0 ? " · free" : ` · +${fmtToken(lv.price, p.decimals)} fee`}
+                      {due > 0n ? ` · +${fmtToken(due, p.decimals)} fee` : i === 0 ? " · free" : " · unlocked"}
                     </option>
                   );
                 })}

@@ -69,7 +69,7 @@ contract VyraLockingTest is Base {
     }
 
     function test_uncommonTierLocksWithItsOwnConfig() public {
-        lockAs(alice, UNCOMMON_ID, 15e18); // Uncommon L1: 3-15, 6%/day
+        lockAs(alice, UNCOMMON_ID, 15e18); // Uncommon L1: up to 15, 6%/day
         IVyraLocking.Lock memory l = locking.lockOf(UNCOMMON_ID);
         assertEq(l.tier, UNCOMMON);
         assertEq(l.rateBps, 600);
@@ -97,7 +97,6 @@ contract VyraLockingTest is Base {
         assertEq(l.tier, 0);
         assertEq(l.level, 0);
         assertEq(l.amount, 8e18);
-        assertEq(l.fee, 0);
         assertEq(l.rateBps, 500);
         assertEq(l.durationDays, 7);
         assertEq(locking.lockedTokensOf(alice).length, 1);
@@ -107,16 +106,19 @@ contract VyraLockingTest is Base {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
-                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 11e18, uint128(1e18), uint128(10e18)
+                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 11e18, uint128(1), uint128(10e18)
             )
         );
         locking.lock(ids(COMMON_ID), ids(11e18), lv(0));
     }
 
-    function test_lock_cannotGoBelowLevelMin() public {
+    /// The bottom of every level is 1: a level only caps the amount, it never raises the floor.
+    function test_lock_startsAtOne() public {
+        lockAs(alice, COMMON_ID, 1);
+        assertEq(locking.lockOf(COMMON_ID).amount, 1);
         vm.prank(alice);
-        vm.expectRevert();
-        locking.lock(ids(LEGENDARY_ID), ids(49e18), lv(0));
+        vm.expectRevert(abi.encodeWithSelector(VyraLocking.AmountOutOfRange.selector, COMMON_ID_2, 0, uint128(1), uint128(10e18)));
+        locking.lock(ids(COMMON_ID_2), ids(0), lv(0));
     }
 
     function test_lock_revertsIfNotOwner() public {
@@ -166,15 +168,16 @@ contract VyraLockingTest is Base {
         locking.lock(ids(LEGENDARY_ID), ids(100e18), lv(0));
     }
 
-    /// The level fee comes back and earns too: Common L3, (37 + 37 * 5% * 7) / 7 a day.
-    function test_levelFeeEarnsWithTheAmount() public {
+    /// The level fee buys the level and stays in the pool: it is not paid back and earns nothing.
+    /// Common L3, 30 locked at 5%/day: 30 back + 7.5 tribute, the 7 fee stays where it is.
+    function test_levelFeeGoesToThePoolAndIsNotPaidBack() public {
         lockAs(alice, COMMON_ID, 30e18, 2);
-        assertEq(locking.lockOf(COMMON_ID).fee, 7e18);
-        assertEq(pool.tributeOf(locking.lockOf(COMMON_ID)), 12.95e18);
-        assertEq(pool.maxReward(locking.lockOf(COMMON_ID)), 49.95e18);
-        assertEq(pool.rewardPerDay(locking.lockOf(COMMON_ID)), uint256(49.95e18) / 7);
-        assertEq(pool.totalReserved(), 49.95e18);
-        assertEq(pool.available(), SEED + 37e18 - 49.95e18);
+        assertEq(locking.levelOf(COMMON_ID), 2, "the level is unlocked for the guardian");
+        assertEq(pool.tributeOf(locking.lockOf(COMMON_ID)), 10.5e18);
+        assertEq(pool.maxReward(locking.lockOf(COMMON_ID)), 40.5e18);
+        assertEq(pool.rewardPerDay(locking.lockOf(COMMON_ID)), uint256(40.5e18) / 7);
+        assertEq(pool.totalReserved(), 40.5e18);
+        assertEq(pool.available(), SEED + 37e18 - 40.5e18, "the fee stays in the free fund");
     }
 
     /// The example from the lock page: Common L1, pay 10, get (10 + 3.5) / 7 ≈ 1.93 a day.
@@ -197,14 +200,14 @@ contract VyraLockingTest is Base {
 
     function test_lockAtHigherLevel_paysFeeIntoPoolAndUnlocksRange() public {
         uint256 poolBefore = token.balanceOf(address(pool));
-        lockAs(alice, COMMON_ID, 30e18, 2); // Common L3: 21-30, fee 7
+        lockAs(alice, COMMON_ID, 30e18, 2); // Common L3: up to 30, fee 7
         IVyraLocking.Lock memory l = locking.lockOf(COMMON_ID);
         assertEq(l.level, 2);
         assertEq(l.amount, 30e18);
         assertEq(token.balanceOf(address(pool)) - poolBefore, 37e18, "amount + level fee");
         assertEq(locking.totalLockPayments(), 30e18);
         assertEq(locking.totalLevelPayments(), 7e18);
-        assertEq(pool.totalReserved(), 49.95e18, "amount + fee back, with tribute on both");
+        assertEq(pool.totalReserved(), 40.5e18, "the amount back, with tribute on it");
     }
 
     function test_levelOneIsFree() public {
@@ -218,31 +221,54 @@ contract VyraLockingTest is Base {
         vm.startPrank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
-                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 50e18, uint128(21e18), uint128(30e18)
+                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 50e18, uint128(1), uint128(30e18)
             )
         );
         locking.lock(ids(COMMON_ID), ids(50e18), lv(2));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VyraLocking.AmountOutOfRange.selector, COMMON_ID, 10e18, uint128(21e18), uint128(30e18)
-            )
-        );
-        locking.lock(ids(COMMON_ID), ids(10e18), lv(2));
         vm.stopPrank();
     }
 
-    function test_renewCanChangeLevel() public {
-        lockAs(alice, COMMON_ID, 50e18, 4); // L5
+    /// The level belongs to the guardian, not to the lock: once it is paid for, every later lock
+    /// at that level is free.
+    function test_levelAccessStaysWithTheGuardian() public {
+        lockAs(alice, COMMON_ID, 50e18, 4); // L5: up to 50, fee 20
+        assertEq(locking.levelOf(COMMON_ID), 4);
         vm.warp(block.timestamp + 7 days);
         vm.prank(alice);
         locking.renew(ids(COMMON_ID), ids(10e18), lv(0)); // back to L1, free
         assertEq(locking.lockOf(COMMON_ID).level, 0);
+        assertEq(locking.levelOf(COMMON_ID), 4, "the level stays unlocked");
 
         vm.warp(block.timestamp + 7 days);
         vm.prank(alice);
-        locking.renew(ids(COMMON_ID), ids(20e18), lv(1)); // L2 again costs its fee again
+        locking.renew(ids(COMMON_ID), ids(20e18), lv(1)); // L2 again, and free
         assertEq(locking.lockOf(COMMON_ID).level, 1);
-        assertEq(locking.totalLevelPayments(), 20e18 + 3e18);
+        assertEq(locking.totalLevelPayments(), 20e18, "the level was paid for once");
+    }
+
+    /// The same after the guardian comes home: locking it again keeps the level it was unlocked at.
+    function test_levelAccessSurvivesUnlock() public {
+        lockAs(alice, COMMON_ID, 30e18, 2); // L3, fee 7
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(alice);
+        locking.unlock(ids(COMMON_ID));
+        assertEq(locking.levelOf(COMMON_ID), 2, "the guardian keeps its level");
+
+        uint256 before = token.balanceOf(alice);
+        lockAs(alice, COMMON_ID, 25e18, 2); // the same level again
+        assertEq(before - token.balanceOf(alice), 25e18, "no fee the second time");
+        assertEq(locking.totalLevelPayments(), 7e18);
+        assertEq(locking.lockOf(COMMON_ID).level, 2);
+    }
+
+    /// Unlocking a higher level costs what is left of its price; the rest is already paid.
+    function test_unlockingAHigherLevelCostsTheDifference() public {
+        lockAs(alice, COMMON_ID, 15e18, 1); // L2, fee 3
+        (uint8 unlocked, uint128 paid) = locking.accessOf(COMMON_ID);
+        assertEq(unlocked, 1);
+        assertEq(paid, 3e18);
+        assertEq(locking.levelFeeDue(COMMON_ID, COMMON, 3), 9e18, "L4 price 12 - 3 already paid");
+        assertEq(locking.levelFeeDue(COMMON_ID, COMMON, 1), 0, "already unlocked");
     }
 
     function test_level_rejectsOutOfRangeIndex() public {
@@ -252,8 +278,7 @@ contract VyraLockingTest is Base {
     }
 
     function test_level_rejectsUnavailableOrUnpriced() public {
-        VyraLocking.TierConfig memory t =
-            tier(500, [uint128(1), 11, 21, 0, 0], [uint128(10), 20, 30, 0, 0], [uint128(0), 0, 7, 7, 7]);
+        VyraLocking.TierConfig memory t = tier(500, [uint128(10), 20, 30, 0, 0], [uint128(0), 0, 7, 7, 7]);
         vm.prank(owner);
         locking.setTierConfig(0, t);
         vm.startPrank(alice);
@@ -284,20 +309,19 @@ contract VyraLockingTest is Base {
     function test_tierConfig_validation() public {
         vm.startPrank(owner);
         // level 1 must be free
-        VyraLocking.TierConfig memory t =
-            tier(500, [uint128(1), 11, 21, 31, 41], [uint128(10), 20, 30, 40, 50], [uint128(1), 3, 7, 12, 20]);
+        VyraLocking.TierConfig memory t = tier(500, [uint128(10), 20, 30, 40, 50], [uint128(1), 3, 7, 12, 20]);
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.InvalidTierConfig.selector, 0, 0));
         locking.setTierConfig(0, t);
         // caps can't go down
-        t = tier(500, [uint128(1), 11, 21, 31, 41], [uint128(10), 20, 15, 40, 50], [uint128(0), 3, 7, 12, 20]);
+        t = tier(500, [uint128(10), 20, 15, 40, 50], [uint128(0), 3, 7, 12, 20]);
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.InvalidTierConfig.selector, 0, 2));
         locking.setTierConfig(0, t);
         // prices can't go down
-        t = tier(500, [uint128(1), 11, 21, 31, 41], [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 2, 12, 20]);
+        t = tier(500, [uint128(10), 20, 30, 40, 50], [uint128(0), 3, 2, 12, 20]);
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.InvalidTierConfig.selector, 0, 2));
         locking.setTierConfig(0, t);
         // no gaps: level 3 can't exist if level 2 doesn't
-        t = tier(500, [uint128(1), 0, 21, 0, 0], [uint128(10), 0, 30, 0, 0], [uint128(0), 3, 7, 7, 7]);
+        t = tier(500, [uint128(10), 0, 30, 0, 0], [uint128(0), 3, 7, 7, 7]);
         vm.expectRevert(abi.encodeWithSelector(VyraLocking.InvalidTierConfig.selector, 0, 2));
         locking.setTierConfig(0, t);
         vm.stopPrank();
@@ -371,16 +395,17 @@ contract VyraLockingTest is Base {
         assertEq(locking.totalLocked(), 0);
     }
 
-    /// The full round trip: the holder gets the whole payment back plus 7 days of tribute on all of it.
+    /// The full round trip: the holder gets the locked amount back plus 7 days of tribute on it.
+    /// The level fee stays in the pool.
     function test_unlock_returnsPaymentPlusTribute() public {
         uint256 start = token.balanceOf(alice);
-        lockAs(alice, COMMON_ID, 30e18, 2); // L3: 30 + 7 fee, 12.95 tribute
+        lockAs(alice, COMMON_ID, 30e18, 2); // L3: 30 + 7 fee, 10.5 tribute
         assertEq(start - token.balanceOf(alice), 37e18);
         vm.warp(block.timestamp + 7 days);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice), start + 12.95e18);
-        assertEq(token.balanceOf(address(pool)), SEED - 12.95e18, "the seed paid the tribute");
+        assertEq(token.balanceOf(alice), start + 3.5e18, "30 back + 10.5 tribute - 7 fee");
+        assertEq(token.balanceOf(address(pool)), SEED - 3.5e18, "the seed paid the tribute");
     }
 
     function test_unlock_batchRejectsRepeatedId() public {
@@ -591,14 +616,14 @@ contract VyraLockingTest is Base {
         lockAs(alice, COMMON_ID, 4e18);
         vm.warp(block.timestamp + 1 days);
         vm.prank(alice);
-        locking.levelUp(COMMON_ID, 1, 12e18); // pays day 1; the added 11 comes back over days 2-7 with 6 days of tribute
+        locking.levelUp(COMMON_ID, 1, 12e18); // pays day 1; the 8 added comes back over days 2-7 with 6 days of tribute
         vm.prank(owner);
         locking.pause();
 
         uint256 before = token.balanceOf(alice);
         vm.prank(owner);
         locking.emergencyReturn(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - before, 5.4e18 - uint256(5.4e18) / 7 + 14.3e18);
+        assertEq(token.balanceOf(alice) - before, 5.4e18 - uint256(5.4e18) / 7 + 10.4e18);
         assertEq(nft.ownerOf(COMMON_ID), alice);
         assertEq(pool.totalReserved(), 0);
     }

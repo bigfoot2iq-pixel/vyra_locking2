@@ -109,6 +109,30 @@ export const vyraLockingAbi = [
   },
   {
     "type": "function",
+    "name": "accessOf",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "level",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "feePaid",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "allLockedCount",
     "inputs": [],
     "outputs": [
@@ -223,6 +247,54 @@ export const vyraLockingAbi = [
         "name": "",
         "type": "uint40",
         "internalType": "uint40"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "levelFeeDue",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "level",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "levelOf",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -376,11 +448,6 @@ export const vyraLockingAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }
@@ -492,11 +559,6 @@ export const vyraLockingAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }
@@ -752,11 +814,6 @@ export const vyraLockingAbi = [
             "internalType": "struct VyraLocking.Level[5]",
             "components": [
               {
-                "name": "minAmount",
-                "type": "uint128",
-                "internalType": "uint128"
-              },
-              {
                 "name": "maxAmount",
                 "type": "uint128",
                 "internalType": "uint128"
@@ -793,11 +850,6 @@ export const vyraLockingAbi = [
             "type": "tuple[5]",
             "internalType": "struct VyraLocking.Level[5]",
             "components": [
-              {
-                "name": "minAmount",
-                "type": "uint128",
-                "internalType": "uint128"
-              },
               {
                 "name": "maxAmount",
                 "type": "uint128",
@@ -856,11 +908,6 @@ export const vyraLockingAbi = [
             "internalType": "struct VyraLocking.Level[5]",
             "components": [
               {
-                "name": "minAmount",
-                "type": "uint128",
-                "internalType": "uint128"
-              },
-              {
                 "name": "maxAmount",
                 "type": "uint128",
                 "internalType": "uint128"
@@ -897,11 +944,6 @@ export const vyraLockingAbi = [
             "type": "tuple[5]",
             "internalType": "struct VyraLocking.Level[5]",
             "components": [
-              {
-                "name": "minAmount",
-                "type": "uint128",
-                "internalType": "uint128"
-              },
               {
                 "name": "maxAmount",
                 "type": "uint128",
@@ -1867,11 +1909,6 @@ export const vyraRewardPoolAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }
@@ -2001,11 +2038,6 @@ export const vyraRewardPoolAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }
@@ -2218,11 +2250,6 @@ export const vyraRewardPoolAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }
@@ -2428,11 +2455,6 @@ export const vyraRewardPoolAbi = [
             "name": "token",
             "type": "address",
             "internalType": "contract IERC20"
-          },
-          {
-            "name": "fee",
-            "type": "uint128",
-            "internalType": "uint128"
           }
         ]
       }

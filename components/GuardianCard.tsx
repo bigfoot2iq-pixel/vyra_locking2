@@ -2,7 +2,7 @@
 
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
 import { lockDaily, lockEarnedThrough, lockTotal as lockPayoutOf, unclaimedDays, type Guardian } from "@/hooks/useGuardians";
-import { bestLock, topLevel, type Protocol } from "@/hooks/useProtocol";
+import { bestLock, minLock, topLevel, type Protocol } from "@/hooks/useProtocol";
 import { buyUrlFor } from "@/lib/env";
 import { bpsToPct, DAY, fmtClock, fmtDuration, fmtToken, plural, usdOf } from "@/lib/format";
 import { tierOf } from "@/lib/tiers";
@@ -38,12 +38,13 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
   const tierClosed = !first || first.maxAmount === 0n;
   const best = bestLock(cfg, p.durationDays);
   // Can't cover even a level 1 lock (which has no fee): point straight at where to buy.
-  const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < first.minAmount ? buyUrlFor(p.token) : undefined;
+  const cheapest = minLock(p.decimals);
+  const buyUrl = !l && !tierClosed && p.balance !== undefined && p.balance < cheapest ? buyUrlFor(p.token) : undefined;
   const owedDays = unclaimedDays(g, now);
   // Running-lock facts: today's day number, and what the lock paid out so far against its whole payout
-  // (the payment back plus tribute).
+  // (the amount back plus tribute).
   const daily = l ? lockDaily(l) : 0n;
-  const paidIn = l ? l.amount + l.fee : 0n;
+  const paidIn = l ? l.amount : 0n;
   const daysDone = l ? Math.min(Math.max(0, Math.floor((now - l.start) / DAY)), l.durationDays) : 0;
   const dayNow = l ? Math.min(daysDone + 1, l.durationDays) : 0;
   const earned = l ? lockEarnedThrough(l, daysDone) : 0n;
@@ -94,7 +95,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             </div>
             {!ended && (
               <dl className="card-facts num">
-                <div title="Amount + level fee paid into the pool; all of it comes back, with tribute on top">
+                <div title="Amount locked in the pool; it comes back with tribute on top">
                   <dt>Paid in</dt>
                   <dd>
                     {fmtToken(paidIn, p.decimals)}
@@ -210,14 +211,14 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
                 </span>
                 <span className="card-pitch-sub">
                   {usd !== undefined && <b className="card-pitch-usd">{usdOf(best.daily, p.decimals, usd)}/day · </b>}
-                  Your payment back + {fmtToken(best.tribute, p.decimals, 1)} {p.symbol} profit · {p.durationDays} days
+                  What you locked back + {fmtToken(best.tribute, p.decimals, 1)} {p.symbol} profit · {p.durationDays} days
                 </span>
               </div>
             )}
             <div className="card-row">
               <span className="dim">Lock range</span>
               <span className="num">
-                {tierClosed || !last ? "—" : `${fmtToken(first.minAmount, p.decimals)}–${fmtToken(last.maxAmount, p.decimals)} ${p.symbol}`}
+                {tierClosed || !last ? "—" : `1–${fmtToken(last.maxAmount, p.decimals)} ${p.symbol}`}
               </span>
             </div>
             <div className={`card-actions${buyUrl ? " card-actions-row" : ""}`}>
@@ -232,7 +233,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
             </div>
             {buyUrl && (
               <p className="card-buy-note">
-                Level 1 needs {fmtToken(first?.minAmount, p.decimals)} {p.symbol}. You have {fmtToken(p.balance, p.decimals)}.
+                Level 1 needs {fmtToken(cheapest, p.decimals)} {p.symbol}. You have {fmtToken(p.balance, p.decimals)}.
               </p>
             )}
           </>

@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { erc20Abi, formatUnits, parseUnits } from "viem";
 import { lockDaily, lockEarnedThrough, lockTotal, type Guardian } from "@/hooks/useGuardians";
-import type { Protocol } from "@/hooks/useProtocol";
+import { levelFeeDue, levelOpen, type Protocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi } from "@/lib/abis";
@@ -26,7 +26,7 @@ function safeParse(v: string, decimals: number): bigint | undefined {
   }
 }
 
-/** Raise a running lock to a higher level: pay the fee difference plus a top-up. */
+/** Raise a running lock to a higher level: pay the level fee (unless it is already unlocked) plus a top-up. */
 export function LevelUpDialog({
   guardian: g,
   protocol: p,
@@ -46,12 +46,14 @@ export function LevelUpDialog({
   const l = g.lock!;
   const cfg = p.tiers?.[l.tier];
   const levels = cfg?.levels ?? [];
-  const isOpen = (i: number) => !!levels[i] && levels[i].maxAmount > 0n && levels[i].price > 0n;
-  const firstUp = levels.findIndex((_, i) => i > l.level && isOpen(i));
+  // Level access belongs to the guardian: a level it already owns is free to level up to.
+  const access = g.access;
+  const firstUp = levels.findIndex((_, i) => i > l.level && levelOpen(cfg, access, i));
 
   const [level, setLevel] = useState(firstUp);
   const target = levels[level];
-  const min = target ? (target.minAmount > l.amount ? target.minAmount : l.amount) : 0n;
+  // the floor of a level is 1: a level-up only raises the cap, it never lowers what is locked
+  const min = l.amount;
   const max = target?.maxAmount ?? 0n;
   const [input, setInput] = useState(() => formatUnits(target?.maxAmount ?? 0n, p.decimals));
 
@@ -59,20 +61,20 @@ export function LevelUpDialog({
   const inRange = amount !== undefined && amount >= min && amount <= max;
   const pct = max > min && amount !== undefined ? Number(((amount - min) * 1000n) / (max - min)) / 10 : 0;
 
-  const feeDiff = target ? target.price - (levels[l.level]?.price ?? 0n) : 0n;
+  const fee = levelFeeDue(cfg, access, level);
   const a = amount ?? l.amount;
   const topUp = a > l.amount ? a - l.amount : 0n;
-  const pay = feeDiff + topUp;
+  const pay = fee + topUp;
 
   const rate = BigInt(l.rateBps);
   const elapsedDays = Math.min(Math.floor((now - l.start) / DAY), l.durationDays);
   const remaining = BigInt(l.durationDays - elapsedDays);
   // what is paid now comes back over the remaining days, with the rate on it for each of them;
   // the days earned so far are paid out first, the rest of the old payout carries on
-  const extra = (pay * rate * remaining) / BPS;
+  const extra = (topUp * rate * remaining) / BPS;
   const oldDaily = lockDaily(l);
   const left = lockTotal(l) - lockEarnedThrough(l, elapsedDays);
-  const newDaily = remaining > 0n ? (left + pay + extra) / remaining : oldDaily;
+  const newDaily = remaining > 0n ? (left + topUp + extra) / remaining : oldDaily;
 
   // An approval made in this dialog counts right away, even if the RPC hasn't caught up yet.
   const [approved, setApproved] = useState(0n);
@@ -140,7 +142,7 @@ export function LevelUpDialog({
         <div className="card-row" style={{ marginBottom: 14 }}>
           <TierBadge tier={l.tier} className="tier-badge tier-badge-inline" />
           <span className="faint" style={{ fontSize: "0.8rem" }}>
-            Paid in: {fmtToken(l.amount + l.fee, p.decimals)} {p.symbol} at Level {l.level + 1}
+            Paid in: {fmtToken(l.amount, p.decimals)} {p.symbol} at Level {l.level + 1}
           </span>
         </div>
 
@@ -153,7 +155,8 @@ export function LevelUpDialog({
               <div className="level-picker" role="radiogroup" aria-label="Level">
                 {levels.map((lv, i) => {
                   const current = i === l.level;
-                  const selectable = i > l.level && isOpen(i);
+                  const selectable = i > l.level && levelOpen(cfg, access, i);
+                  const due = levelFeeDue(cfg, access, i);
                   return (
                     <button
                       key={i}
@@ -166,7 +169,7 @@ export function LevelUpDialog({
                       <span className="level-tile-name">Lv {i + 1}</span>
                       <span className="level-tile-cap num">{lv.maxAmount > 0n ? `≤ ${fmtToken(lv.maxAmount, p.decimals, 0)}` : "—"}</span>
                       <span className="level-tile-fee num">
-                        {current ? "current" : i < l.level ? "" : selectable ? `+${fmtToken(lv.price - (levels[l.level]?.price ?? 0n), p.decimals)}` : "closed"}
+                        {current ? "current" : i < l.level ? "" : selectable ? (due > 0n ? `+${fmtToken(due, p.decimals)}` : "unlocked") : "closed"}
                       </span>
                     </button>
                   );
@@ -200,8 +203,8 @@ export function LevelUpDialog({
                 <span>{fmtToken(topUp, p.decimals)}</span>
               </div>
               <div>
-                <span>Level fee difference</span>
-                <span>{fmtToken(feeDiff, p.decimals)}</span>
+                <span>Level fee</span>
+                <span>{fee > 0n ? fmtToken(fee, p.decimals) : "unlocked"}</span>
               </div>
               <div className="pay-sent">
                 <span className="dim">
@@ -221,14 +224,12 @@ export function LevelUpDialog({
                   {fmtToken(oldDaily, p.decimals)} → {fmtToken(newDaily, p.decimals)} {p.symbol}
                 </span>
               </div>
-              {pay > 0n && (
+              {topUp > 0n && (
                 <div className="pay-back">
                   <span>
                     Extra profit · what you pay now comes back with {bpsToPct(rate)} a day
                   </span>
-                  <span>
-                    +{fmtToken(extra, p.decimals)} {p.symbol} · +{bpsToPct((extra * 10_000n) / pay)}
-                  </span>
+                  <span>+{fmtToken(extra, p.decimals)} {p.symbol}</span>
                 </div>
               )}
             </div>

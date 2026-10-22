@@ -9,8 +9,12 @@ import { CountUp } from "./fx/CountUp";
 
 const PROMISES = [
   {
-    title: "Everything you pay comes back",
-    body: "Your amount and your level fee both go into the reward pool. Each full day of the lock pays an equal share of them back plus your rarity's rate on the two together.",
+    title: "Everything you lock comes back",
+    body: "The amount you lock goes into the reward pool. Each full day of the lock pays an equal share of it back plus your rarity's rate on it.",
+  },
+  {
+    title: "A level fee buys the level for good",
+    body: "Paying for a level unlocks it for that guardian, not for one lock. It stays unlocked through every later lock, and it stays in the pool.",
   },
   {
     title: "Your payout is set aside first",
@@ -46,8 +50,8 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
   const exLv = cfg && top >= 0 ? cfg.levels[top] : undefined;
   const exPaid = exLv ? exLv.maxAmount + exLv.price : undefined;
   const exDays = p.durationDays ?? 0;
-  const exDaily = exLv && cfg ? dailyPayout(exLv.maxAmount, exLv.price, cfg.dailyRateBps, exDays) : undefined;
-  const exTribute = exLv && cfg ? lockTribute(exLv.maxAmount, exLv.price, cfg.dailyRateBps, exDays) : undefined;
+  const exDaily = exLv && cfg ? dailyPayout(exLv.maxAmount, cfg.dailyRateBps, exDays) : undefined;
+  const exTribute = exLv && cfg ? lockTribute(exLv.maxAmount, cfg.dailyRateBps, exDays) : undefined;
 
   return (
     <section className="section" id="trust">
@@ -60,9 +64,9 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
 
       <div className="trust plate">
         <p className="trust-lead">
-          What you pay for a lock, the amount and the level fee, goes to the reward pool. Every full day of the lock pays
-          you an equal share of it back plus your rarity&apos;s daily rate on the whole payment, so by the last day you have
-          all of it back with profit on top, and your guardian comes home.
+          The amount you lock for a period goes to the reward pool. Every full day of the lock pays you an equal share of it
+          back plus your rarity&apos;s daily rate on it, so by the last day you have all of it back with profit on top, and
+          your guardian comes home. A level fee buys the level for that guardian and stays in the pool.
         </p>
 
         {exLv && exPaid !== undefined && exDaily !== undefined && exTribute !== undefined && cfg && exPaid > 0n && (
@@ -83,16 +87,16 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
                 +{fmtToken(exDaily, p.decimals, 2)} <small>{p.symbol}</small>
               </span>
               <span className="trust-flow-s">
-                a {p.durationDays}th of your payment back + {bpsToPct(cfg.dailyRateBps)} of it, claim any time
+                a {p.durationDays}th of what you locked back + {bpsToPct(cfg.dailyRateBps)} of it, claim any time
               </span>
             </li>
             <li>
               <span className="trust-flow-k">Over {p.durationDays} days</span>
               <span className="trust-flow-v is-ok">
-                {fmtToken(exPaid + exTribute, p.decimals, 2)} <small>{p.symbol}</small>
+                {fmtToken(exLv.maxAmount + exTribute, p.decimals, 2)} <small>{p.symbol}</small>
               </span>
               <span className="trust-flow-s">
-                your {fmtToken(exPaid, p.decimals, 2)} back + {fmtToken(exTribute, p.decimals, 2)} profit (
+                your {fmtToken(exLv.maxAmount, p.decimals, 2)} back + {fmtToken(exTribute, p.decimals, 2)} profit (
                 {bpsToPct(cfg.dailyRateBps * Number(p.durationDays ?? 0))}), and your guardian
               </span>
             </li>
@@ -188,7 +192,7 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
           </ul>
           <p className="faint trust-foot">
             The code on the explorer is the code that runs. Open the pool and read <code>maxReward</code> to see the payout
-            (amount + fee back, plus tribute on both), and <code>reserve</code> to see it set aside. Not yet independently audited.
+            (the amount back, plus tribute on it), and <code>reserve</code> to see it set aside. Not yet independently audited.
           </p>
         </div>
       </div>

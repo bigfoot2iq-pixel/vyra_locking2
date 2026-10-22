@@ -13,8 +13,8 @@ export function EarnPreview({ protocol: p, usd }: { protocol: Protocol; usd: num
   const cfg = p.tiers?.[tier];
   const first = cfg?.levels[0];
   const days = BigInt(p.durationDays ?? 0);
-  // what each lock pays a day: the payment back plus the rate on it, spread over the days
-  const free = first && cfg ? dailyPayout(first.maxAmount, 0n, cfg.dailyRateBps, days) : undefined;
+  // what each lock pays a day: the amount back plus the rate on it, spread over the days
+  const free = first && cfg ? dailyPayout(first.maxAmount, cfg.dailyRateBps, days) : undefined;
   const best = bestLock(cfg, p.durationDays)?.daily;
   const top = topLevel(cfg);
 
@@ -58,7 +58,7 @@ export function EarnPreview({ protocol: p, usd }: { protocol: Protocol; usd: num
         </div>
       )}
       <p className="dim preview-note">
-        Over {p.durationDays ?? "—"} days you get everything you pay (amount + level fee) back, plus{" "}
+        Over {p.durationDays ?? "—"} days you get everything you lock back, plus{" "}
         {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} of it a day
         {cfg && p.durationDays ? `: +${bpsToPct(cfg.dailyRateBps * Number(p.durationDays))} profit per lock` : ""}. Paid out daily,
         claim whenever you like.

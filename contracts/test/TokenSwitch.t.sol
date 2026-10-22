@@ -75,11 +75,11 @@ contract TokenSwitchTest is Base {
         _switchAndSeed();
         uint256 oldBefore = token.balanceOf(alice);
         uint256 newBefore = next.balanceOf(alice);
-        lockAs(alice, COMMON_ID, 12e18, 1); // level 2: 11-20, 3 fee
+        lockAs(alice, COMMON_ID, 12e18, 1); // level 2: up to 20, 3 fee
         assertEq(token.balanceOf(alice), oldBefore, "old token untouched");
         assertEq(newBefore - next.balanceOf(alice), 12e18 + 3e18);
         assertEq(next.balanceOf(address(pool)), SEED + 15e18);
-        assertEq(pool.reservedOf(next), 20.25e18, "12 + 3 fee back, plus 5% of it for 7 days");
+        assertEq(pool.reservedOf(next), 16.2e18, "12 back, plus 5% of it for 7 days");
         assertEq(locking.totalLockPayments(), 12e18);
         assertEq(locking.totalLevelPayments(), 3e18);
         assertEq(locking.lockPaymentsOf(token), 0);

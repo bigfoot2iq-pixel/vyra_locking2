@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Poin
 import { useAccount } from "wagmi";
 import { useChainNow } from "@/hooks/useChainNow";
 import { lockDaily, noteReturned, unclaimedDays, useGuardians, type Guardian } from "@/hooks/useGuardians";
-import { bestLock, maxTribute, topLevel, useProtocol } from "@/hooks/useProtocol";
+import { bestLock, maxTribute, minLock, topLevel, useProtocol } from "@/hooks/useProtocol";
 import { useTokenUsd } from "@/hooks/useTokenUsd";
 import { useTx } from "@/hooks/useTx";
 import { vyraLockingAbi, vyraRewardPoolAbi } from "@/lib/abis";
@@ -55,10 +55,7 @@ export function Keep() {
   const idleDaily = lockable.reduce((a, g) => a + (bestLock(p.tiers?.[g.tier], p.durationDays)?.daily ?? 0n), 0n);
   const canLock = lockable.length > 0 && !p.paused && p.keepAllowed !== false;
   // The cheapest lock any idle guardian allows (level 1, no fee); below it the wallet can't lock anything.
-  const cheapest = lockable.reduce<bigint | undefined>((m, g) => {
-    const min = p.tiers![g.tier].levels[0].minAmount;
-    return m === undefined || min < m ? min : m;
-  }, undefined);
+  const cheapest = lockable.length > 0 ? minLock(p.decimals) : undefined;
   const buyUrl = cheapest !== undefined && p.balance !== undefined && p.balance < cheapest ? buyUrlFor(p.token) : undefined;
   const openLockAll = () => setModal({ kind: "lockall" });
 
@@ -112,7 +109,7 @@ export function Keep() {
                   up to {fmtToken(idleDaily, p.decimals, 2)} {p.symbol} a day
                 </b>
                 {usd !== undefined && <span className="hero-usd"> {usdOf(idleDaily, p.decimals, usd)}</span>}: everything
-                you pay back, plus up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol} profit.
+                you lock comes back, plus up to {fmtToken(idleUpside, p.decimals, 0)} {p.symbol} profit.
               </>
             ) : (
               <>
@@ -277,8 +274,8 @@ export function Keep() {
             <span className="roman">I</span>
             <h3>Lock</h3>
             <p>
-              Pick a level and an amount inside its range. Your guardian goes into the Keep and your tokens go to the reward
-              pool. Level 1 is free; higher levels let you pay in more for a small fee.
+              Pick a level and an amount up to its cap. Your guardian goes into the Keep and your tokens go to the reward
+              pool. Level 1 is free; a higher level costs a fee that buys the level for that guardian for good.
             </p>
           </div>
           <div className="rite-step plate">
@@ -286,7 +283,7 @@ export function Keep() {
             <h3>Keep vigil</h3>
             <p>
               Your lock runs for {p.durationDays ?? "—"} days. Every full day pays back a share of{" "}
-              <b>everything you paid</b> plus your rarity&apos;s daily rate on it, so by the last day it is all back with
+              <b>the amount you locked</b> plus your rarity&apos;s daily rate on it, so by the last day it is all back with
               profit. Claim any time; unclaimed days carry over.
             </p>
           </div>
@@ -320,11 +317,11 @@ export function Keep() {
                 <dl className="num">
                   <div>
                     <dt>Level 1</dt>
-                    <dd>{l1 && l1.maxAmount > 0n ? `${fmtToken(l1.minAmount, p.decimals)}–${fmtToken(l1.maxAmount, p.decimals)}` : "closed"}</dd>
+                    <dd>{l1 && l1.maxAmount > 0n ? `1–${fmtToken(l1.maxAmount, p.decimals)}` : "closed"}</dd>
                   </div>
                   <div>
                     <dt>Level {top + 1 || "—"}</dt>
-                    <dd>{lTop ? `${fmtToken(lTop.minAmount, p.decimals)}–${fmtToken(lTop.maxAmount, p.decimals)}` : "—"}</dd>
+                    <dd>{lTop ? `1–${fmtToken(lTop.maxAmount, p.decimals)}` : "—"}</dd>
                   </div>
                   <div>
                     <dt>Daily tribute</dt>
@@ -341,7 +338,7 @@ export function Keep() {
         </div>
         <p className="lore" style={{ marginTop: 18, fontSize: "1.1rem" }}>
           Each tier has 5 levels. You choose the level when you lock, and can level up a running lock to lock more and earn
-          more for the days left.
+          more for the days left. A level you paid for stays unlocked for that guardian, lock after lock.
         </p>
       </section>
 

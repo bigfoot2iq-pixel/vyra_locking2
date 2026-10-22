@@ -20,17 +20,19 @@ interface IRewardPool {
 
 /// @title VyraLocking
 /// @notice Holders lock a VYRA guardian for a fixed period and pay a level-bounded amount of the token
-///         (plus the level fee) into the {VyraRewardPool}. Over the period the pool pays it all back
-///         (amount + fee) plus the tier's daily rate on it, in equal daily parts. The guardian comes
-///         back when the lock closes.
+///         into the {VyraRewardPool}. Over the period the pool pays the locked amount back plus the
+///         tier's daily rate on it, in equal daily parts. The guardian comes back when the lock closes.
 /// @dev Tiers match the collection's "Rarity" trait: 0 Common, 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary.
 ///      Each token's tier is stored in a packed on-chain map (4 bits per token) uploaded by the owner.
-///      Each tier has 5 levels (0-based here, shown as 1-5). A level sets the allowed lock amount.
+///      Each tier has 5 levels (0-based here, shown as 1-5). A level sets the cap on the lock amount:
+///      the holder may lock anything from 1 up to the level's cap.
 ///      The holder picks the level when locking or renewing: level 1 is free, a higher level costs
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
-///      the fee difference plus a top-up, and the remaining days earn on the bigger total.
-///      Amounts and level fees both go to the pool and come back with the daily payouts. Nothing
-///      is burned and this contract never keeps tokens.
+///      the fee still due plus a top-up, and the remaining days earn on the bigger total.
+///      Level access belongs to the guardian, not to a lock: the fee for a level is paid once and
+///      stays unlocked for that NFT, through every later lock and renewal (see {Access}).
+///      The locked amount goes to the pool and comes back with the daily payouts; the level fee goes
+///      to the pool and stays there. Nothing is burned and this contract never keeps tokens.
 ///      The owner can switch the payment token at any time. New locks, renewals and level-ups use
 ///      the new token; a running lock keeps the token it was paid in, and its rewards come in that
 ///      token. A lock paid in an old token can't level up; it renews into the new one.
@@ -49,14 +51,20 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant TIERS_PER_WORD = 64;
 
     struct Level {
-        uint128 minAmount;
-        uint128 maxAmount; // 0 = level not available
-        uint128 price; // fee to lock at this level; level 0 must be 0, non-decreasing
+        uint128 maxAmount; // 0 = level not available; the floor of a lock is always 1
+        uint128 price; // fee to unlock this level; level 0 must be 0, non-decreasing
     }
 
     struct TierConfig {
         uint16 dailyRateBps;
         Level[LEVEL_COUNT] levels;
+    }
+
+    /// @dev Level access bought for a guardian. It belongs to the guardian, not to a lock: once a
+    ///      level is paid for it stays unlocked for that NFT, through every later lock and renewal.
+    struct Access {
+        uint8 level; // highest unlocked level (0-based)
+        uint128 feePaid; // level fee paid for it so far
     }
 
     IERC721 public immutable nft;
@@ -74,6 +82,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     mapping(address owner => EnumerableSet.UintSet) internal _lockedBy;
     /// @dev Every locked token id, so the owner can find them all in an emergency.
     EnumerableSet.UintSet internal _allLocked;
+    /// @dev Level access per guardian: what it may lock at for free, and what it cost.
+    mapping(uint256 tokenId => Access) internal _access;
 
     uint64 public nextLockId = 1;
     uint256 public totalLocked;
@@ -152,9 +162,9 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Lock guardians at the chosen levels.
     /// @param levels 0-based level per token (UI level - 1). Level 1 is free; a higher level costs
-    ///        its price, paid into the pool on top of the amount.
-    /// @param amounts must sit inside the chosen level's range for the token's tier. Paid into the
-    ///        pool; each day earns the tier's rate on amount + fee.
+    ///        its price on top of the amount, unless the guardian already has that level unlocked.
+    /// @param amounts must sit inside the chosen level's cap for the token's tier. Paid into the
+    ///        pool; each day earns the tier's rate on the amount.
     /// @dev Requires NFT approval (setApprovalForAll) and token allowance for sum(amounts + fees).
     function lock(uint256[] calldata tokenIds, uint256[] calldata amounts, uint8[] calldata levels)
         external
@@ -177,31 +187,32 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Start a new period on finished locks without moving the NFT, at newly chosen levels.
     ///         Each finished lock closes first: its remaining rewards go to the holder, then the new
-    ///         amount (and fee) is paid in.
+    ///         amount (and any level fee still due) is paid in.
     function renew(uint256[] calldata tokenIds, uint256[] calldata amounts, uint8[] calldata levels)
         external
         whenNotPaused
         nonReentrant
     {
-        _quote(tokenIds, amounts, levels);
+        _quote(tokenIds, amounts, levels); // validates the batch
         // one guardian at a time: a repeated id finds its fresh lock still running and reverts
         for (uint256 i; i < tokenIds.length; ++i) {
             uint256 id = tokenIds[i];
             _requireEndedLockOf(id);
             IRewardPool(pool).close(id);
             // the new payment lands before the new period's rewards are reserved
-            _collect(amounts[i], _tiers[baseTierOf(id)].levels[levels[i]].price);
+            _collect(amounts[i], _feeFor(id, levels[i]));
             _openLock(id, amounts[i], levels[i], true);
         }
     }
 
     /// @notice Raise a running lock to a higher level and pay in more.
-    ///         Pays: (new level fee - current level fee) + (newAmount - current amount), into the pool.
-    ///         Days earned so far are paid out first. What is added comes back over the remaining
-    ///         days, with tribute on it for those days.
+    ///         Pays: (level fee still due) + (newAmount - current amount), into the pool.
+    ///         The fee is only due when the guardian has not unlocked that level yet; an unlocked
+    ///         level is free. Days earned so far are paid out first. What is added comes back over
+    ///         the remaining days, with tribute on it for those days.
     ///         The end date does not change. Only while the lock is running.
     /// @param newLevel 0-based target level, above the current one.
-    /// @param newAmount total locked after the level-up: inside the new level's range and not below
+    /// @param newAmount total locked after the level-up: inside the new level's cap and not below
     ///        what is already locked.
     function levelUp(uint256 tokenId, uint8 newLevel, uint256 newAmount) external whenNotPaused nonReentrant {
         Lock storage l = _locks[tokenId];
@@ -215,26 +226,28 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         uint8 tier = l.tier;
         Level memory target = _tiers[tier].levels[newLevel];
         if (target.maxAmount == 0) revert LevelNotAvailable(tier, newLevel);
-        if (target.price == 0) revert LevelNotPriced(tier, newLevel);
+        Access storage access = _access[tokenId];
+        // a paid level with no price is a misconfiguration, never a free upgrade
+        if (newLevel > access.level && target.price == 0) revert LevelNotPriced(tier, newLevel);
         if (newAmount < l.amount) revert AmountBelowLocked(tokenId, newAmount, l.amount);
-        if (newAmount < target.minAmount || newAmount > target.maxAmount) {
-            revert AmountOutOfRange(tokenId, newAmount, target.minAmount, target.maxAmount);
+        if (newAmount == 0 || newAmount > target.maxAmount) {
+            revert AmountOutOfRange(tokenId, newAmount, 1, target.maxAmount);
         }
 
-        // fee difference vs. the level already paid for in this period (prices never decrease)
-        uint256 feeDiff = target.price - _levelFeePaid(tier, l.level);
+        // what the level still costs for this guardian: nothing if it is already unlocked
+        uint256 fee = _feeDue(tier, newLevel, access);
         uint256 topUp = newAmount - l.amount;
         uint8 fromLevel = l.level;
 
         IRewardPool(pool).settle(tokenId); // pay earned days at the old amount
-        _collect(topUp, feeDiff);
+        _collect(topUp, fee);
         l.level = newLevel;
         // forge-lint: disable-next-line(unsafe-typecast) newAmount <= target.maxAmount (uint128)
         l.amount = uint128(newAmount);
-        l.fee = target.price;
-        IRewardPool(pool).extend(tokenId, topUp + feeDiff); // the addition comes back over the remaining days
+        _unlock(tokenId, tier, newLevel);
+        IRewardPool(pool).extend(tokenId, topUp); // the addition comes back over the remaining days
 
-        emit LeveledUp(msg.sender, tokenId, fromLevel, newLevel, newAmount, topUp + feeDiff);
+        emit LeveledUp(msg.sender, tokenId, fromLevel, newLevel, newAmount, topUp + fee);
     }
 
     /// @notice Return the NFT and pay out remaining rewards. Only after the period ends.
@@ -333,6 +346,24 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         if (tier >= TIER_COUNT) revert InvalidTier(tier);
         if (level >= LEVEL_COUNT) revert InvalidLevel(level);
         return _tiers[tier].levels[level].price;
+    }
+
+    /// @notice Level access of a guardian: the highest level it may lock at for free.
+    function levelOf(uint256 tokenId) external view returns (uint8) {
+        return _access[tokenId].level;
+    }
+
+    /// @notice Level access of a guardian and what it cost: the level and the fee paid for it.
+    function accessOf(uint256 tokenId) external view returns (uint8 level, uint128 feePaid) {
+        Access storage a = _access[tokenId];
+        return (a.level, a.feePaid);
+    }
+
+    /// @notice Fee still due to lock `tokenId` at `level` (0-based): nothing when it is unlocked.
+    function levelFeeDue(uint256 tokenId, uint8 tier, uint8 level) public view returns (uint256) {
+        if (tier >= TIER_COUNT) revert InvalidTier(tier);
+        if (level >= LEVEL_COUNT) revert InvalidLevel(level);
+        return _feeDue(tier, level, _access[tokenId]);
     }
 
     // ------------------------------------------------------------------
@@ -445,14 +476,40 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         if (tokenIds.length == 0) revert EmptyInput();
         if (tokenIds.length != amounts.length || tokenIds.length != levels.length) revert LengthMismatch();
         for (uint256 i; i < tokenIds.length; ++i) {
-            uint8 level = levels[i];
-            if (level >= LEVEL_COUNT) revert InvalidLevel(level);
-            uint8 tier = baseTierOf(tokenIds[i]);
-            uint256 price = _tiers[tier].levels[level].price;
-            // a paid level with no price is a misconfiguration, never a free upgrade
-            if (level > 0 && price == 0) revert LevelNotPriced(tier, level);
             total += amounts[i];
-            fees += price;
+            fees += _feeFor(tokenIds[i], levels[i]);
+        }
+    }
+
+    /// @dev What locking `tokenId` at `level` costs on top of the amount: the part of the level's
+    ///      price that was not paid for yet. A paid level with no price is a misconfiguration.
+    function _feeFor(uint256 tokenId, uint8 level) internal view returns (uint256) {
+        if (level >= LEVEL_COUNT) revert InvalidLevel(level);
+        Access storage access = _access[tokenId];
+        if (level <= access.level) return 0;
+        uint8 tier = baseTierOf(tokenId);
+        uint256 price = _tiers[tier].levels[level].price;
+        if (price == 0) revert LevelNotPriced(tier, level);
+        return price > access.feePaid ? price - access.feePaid : 0;
+    }
+
+    /// @dev Fee still due to unlock `level` for a guardian with `access`: the level's price minus
+    ///      what was already paid for the level below it. Nothing when the level is already unlocked.
+    function _feeDue(uint8 tier, uint8 level, Access storage access) internal view returns (uint256) {
+        if (level <= access.level) return 0;
+        uint256 price = _tiers[tier].levels[level].price;
+        return price > access.feePaid ? price - access.feePaid : 0;
+    }
+
+    /// @dev Unlocks `level` for the guardian and returns what it cost. The access belongs to the
+    ///      guardian: it survives the lock, so a later lock at the same level is free.
+    function _unlock(uint256 tokenId, uint8 tier, uint8 level) internal returns (uint256 fee) {
+        Access storage access = _access[tokenId];
+        fee = _feeDue(tier, level, access);
+        if (level > access.level) {
+            access.level = level;
+            // forge-lint: disable-next-line(unsafe-typecast) fee <= the level price (uint128)
+            access.feePaid += uint128(fee);
         }
     }
 
@@ -475,11 +532,6 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         if (block.timestamp < end) revert LockNotEnded(id, end);
     }
 
-    /// @dev Fee charged for `level` of `tier` (the current config; prices only climb across levels).
-    function _levelFeePaid(uint8 tier, uint8 level) internal view returns (uint256) {
-        return _tiers[tier].levels[level].price;
-    }
-
     /// @dev Writes a fresh snapshot for `id` at `level`, reserves its rewards and emits the event.
     function _openLock(uint256 id, uint256 amount, uint8 level, bool renewal) internal {
         uint8 tier = baseTierOf(id);
@@ -487,9 +539,8 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         TierConfig storage cfg = _tiers[tier];
         Level memory lv = cfg.levels[level];
         if (lv.maxAmount == 0) revert LevelNotAvailable(tier, level);
-        if (amount < lv.minAmount || amount > lv.maxAmount) {
-            revert AmountOutOfRange(id, amount, lv.minAmount, lv.maxAmount);
-        }
+        // the floor of a lock is 1; the level only caps it
+        if (amount == 0 || amount > lv.maxAmount) revert AmountOutOfRange(id, amount, 1, lv.maxAmount);
 
         uint64 lockId = nextLockId++;
         uint16 d = durationDays;
@@ -503,13 +554,14 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             lockId: lockId,
             // forge-lint: disable-next-line(unsafe-typecast) amount <= lv.maxAmount (uint128)
             amount: uint128(amount),
-            token: token,
-            fee: lv.price
+            token: token
         });
+        // the level access belongs to the guardian, not to this lock
+        uint256 fee = _unlock(id, tier, level);
         uint40 end = uint40(block.timestamp) + uint40(d) * 1 days;
         IRewardPool(pool).reserve(id);
-        if (renewal) emit Renewed(msg.sender, id, lockId, tier, level, amount, lv.price, end);
-        else emit Locked(msg.sender, id, lockId, tier, level, amount, lv.price, end);
+        if (renewal) emit Renewed(msg.sender, id, lockId, tier, level, amount, fee, end);
+        else emit Locked(msg.sender, id, lockId, tier, level, amount, fee, end);
     }
 
     /// @dev Moves lock amounts + level fees from the caller straight into the pool.
@@ -531,7 +583,6 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
         if (cfg.levels[0].price != 0) revert InvalidTierConfig(tier, 0);
         for (uint8 i; i < LEVEL_COUNT; ++i) {
             Level calldata lv = cfg.levels[i];
-            if (lv.minAmount > lv.maxAmount) revert InvalidTierConfig(tier, i);
             if (i > 0) {
                 Level calldata prev = cfg.levels[i - 1];
                 // levels climb: never a lower cap or a cheaper price than the level below

@@ -13,8 +13,9 @@ import {IVyraLocking} from "./interfaces/IVyraLocking.sol";
 /// @dev Security model:
 ///      - Tokens leave only three ways: reward claims (to the lock owner), settlement on
 ///        unlock/renew/emergency return (to the lock owner), and `withdrawSurplus` by the owner.
-///      - A lock pays back everything paid for it (amount + fee) plus its tribute (`rateBps` of the
-///        payment per day), spread evenly over the period: `paid * (1 + rate * days) / days` a day.
+///      - A lock pays back the amount it locked plus its tribute (`rateBps` of that amount per day),
+///        spread evenly over the period: `amount * (1 + rate * days) / days` a day. The level fee
+///        that unlocks a level is not paid back: it stays in the pool.
 ///        The full payout is reserved when the lock opens; a lock cannot open unless the free
 ///        balance covers it, and the owner can only withdraw what is NOT reserved. So even a
 ///        compromised owner key cannot take payouts already promised to holders.
@@ -125,16 +126,16 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         return withdrawnOf[_current()];
     }
 
-    /// @notice Profit over the whole period: the lock's daily rate on everything paid for it
-    ///         (amount + level fee), times its days.
+    /// @notice Profit over the whole period: the lock's daily rate on the amount it locked.
+    ///         The level fee that unlocked its level is not part of it: that fee stays in the pool.
     function tributeOf(IVyraLocking.Lock memory l) public pure returns (uint256) {
-        return (uint256(l.amount) + l.fee) * l.rateBps * l.durationDays / BPS;
+        return uint256(l.amount) * l.rateBps * l.durationDays / BPS;
     }
 
-    /// @notice Everything a freshly opened lock pays back over its period: the payment
-    ///         (amount + level fee) plus the tribute.
+    /// @notice Everything a freshly opened lock pays back over its period: the locked amount
+    ///         plus the tribute.
     function maxReward(IVyraLocking.Lock memory l) public pure returns (uint256) {
-        return uint256(l.amount) + l.fee + tributeOf(l);
+        return uint256(l.amount) + tributeOf(l);
     }
 
     /// @notice Daily payout of a freshly opened lock: `maxReward / days`. Claims pay exact slices
@@ -210,8 +211,8 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
     // Locking hooks
     // ------------------------------------------------------------------
 
-    /// @notice Reserve a freshly opened lock's full payout (payment + tribute). Its payment landed
-    ///         just before and is part of the free balance the payout is reserved from.
+    /// @notice Reserve a freshly opened lock's full payout (the locked amount + tribute). Its amount
+    ///         landed just before and is part of the free balance the payout is reserved from.
     function reserve(uint256 tokenId) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint256 total = maxReward(l);
@@ -220,9 +221,10 @@ contract VyraRewardPool is Ownable2Step, ReentrancyGuard {
         scheduleOf[l.lockId] = Schedule({total: uint128(total), from: 0, before: 0});
     }
 
-    /// @notice A running lock leveled up and `added` more was paid in (top-up + fee difference).
+    /// @notice A running lock leveled up and `added` more was paid in (the top-up).
     ///         Called after `settle`. The addition comes back in full over the remaining days, with
     ///         tribute on it for those days, on top of what the lock still had to pay.
+    ///         The level fee is not part of `added`: it stays in the pool.
     function extend(uint256 tokenId, uint256 added) external onlyLocking {
         IVyraLocking.Lock memory l = locking.lockOf(tokenId);
         uint16 done = claimedDays[l.lockId];

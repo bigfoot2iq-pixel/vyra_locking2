@@ -21,7 +21,7 @@ interface ITransferValidator {
 ///   FORK_URL=https://rpc-gel.inkonchain.com forge test --match-contract MainnetFork -vv
 contract MainnetForkTest is Test {
     /// the Keep live on Ink: source of the frozen rarity map and the tier table
-    VyraLocking constant LIVE = VyraLocking(0xA64CBD00486d3a7fF1885Bc4CDA255043fA98fE9);
+    VyraLocking constant LIVE = VyraLocking(0x2B2A6De4E6505963b4110201dd7FbB65CE47ddf9);
     VyraLocking LOCKING;
     VyraRewardPool POOL;
     IERC721 constant NFT = IERC721(0x9045306bA97EfE8B0DF46817eAD4fb099aAe1aFE);

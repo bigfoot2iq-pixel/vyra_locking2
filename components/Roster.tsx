@@ -65,7 +65,7 @@ export function Roster({
   const done = locked.filter((g) => g.lock && now >= g.lock.end);
   const running = locked.filter((g) => !done.includes(g));
   // Biggest earners first: the most valuable lock is the first one seen.
-  const upside = (g: Guardian) => maxTribute(p.tiers?.[g.tier], p.durationDays) ?? -1n;
+  const upside = (g: Guardian) => maxTribute(p.tiers?.[g.tier]) ?? -1n;
   const ranked = [...idle].sort((a, b) => (upside(b) > upside(a) ? 1 : upside(b) < upside(a) ? -1 : 0));
 
   const tabs: { id: Filter; label: string; count: number; hidden?: boolean }[] = [

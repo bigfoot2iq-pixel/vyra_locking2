@@ -50,8 +50,8 @@ export function Keep() {
     const t = g.lock!.start + (Math.floor((now - g.lock!.start) / DAY) + 1) * DAY;
     return soonest === undefined || t < soonest ? t : soonest;
   }, undefined);
-  const lockable = gs.idle.filter((g) => maxTribute(p.tiers?.[g.tier], p.durationDays) !== undefined);
-  const idleUpside = lockable.reduce((a, g) => a + (maxTribute(p.tiers?.[g.tier], p.durationDays) ?? 0n), 0n);
+  const lockable = gs.idle.filter((g) => maxTribute(p.tiers?.[g.tier]) !== undefined);
+  const idleUpside = lockable.reduce((a, g) => a + (maxTribute(p.tiers?.[g.tier]) ?? 0n), 0n);
   const idleDaily = lockable.reduce((a, g) => a + (bestLock(p.tiers?.[g.tier], p.durationDays)?.daily ?? 0n), 0n);
   const canLock = lockable.length > 0 && !p.paused && p.keepAllowed !== false;
   // The cheapest lock any idle guardian allows (level 1, no fee); below it the wallet can't lock anything.
@@ -283,8 +283,9 @@ export function Keep() {
             <h3>Keep vigil</h3>
             <p>
               Your lock runs for {p.durationDays ?? "—"} days. Every full day pays back a share of{" "}
-              <b>the amount you locked</b> plus your rarity&apos;s daily rate on it, so by the last day it is all back with
-              profit. Claim any time; unclaimed days carry over.
+              <b>the amount you locked</b> plus your rarity&apos;s tribute on it, earned once for the
+              whole lock, so by the last day it is all back with profit. Claim any time; unclaimed days
+              carry over.
             </p>
           </div>
           <div className="rite-step plate">
@@ -302,7 +303,7 @@ export function Keep() {
             const cfg = p.tiers?.[t.id];
             const top = topLevel(cfg);
             // profit over a full lock, on top of the payment that comes back
-            const full = cfg ? (cfg.dailyRateBps * Number(p.durationDays ?? 0)) / 100 : 0;
+            const full = cfg ? cfg.rateBps / 100 : 0;
             const l1 = cfg?.levels[0];
             const lTop = top >= 0 ? cfg?.levels[top] : undefined;
             return (
@@ -324,8 +325,8 @@ export function Keep() {
                     <dd>{lTop ? `1–${fmtToken(lTop.maxAmount, p.decimals)}` : "—"}</dd>
                   </div>
                   <div>
-                    <dt>Daily tribute</dt>
-                    <dd>{cfg ? bpsToPct(cfg.dailyRateBps) : "—"}</dd>
+                    <dt>Tribute per lock</dt>
+                    <dd>{cfg ? bpsToPct(cfg.rateBps) : "—"}</dd>
                   </div>
                   <div>
                     <dt>Full lock</dt>

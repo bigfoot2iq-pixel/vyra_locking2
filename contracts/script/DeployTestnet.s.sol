@@ -65,7 +65,7 @@ contract DeployTestnet is RarityData {
         pure
         returns (VyraLocking.TierConfig memory c)
     {
-        c.dailyRateBps = rate;
+        c.rateBps = rate;
         for (uint256 i; i < 5; ++i) {
             c.levels[i] = VyraLocking.Level({maxAmount: maxs[i] * 1e18, price: prices[i] * 1e18});
         }

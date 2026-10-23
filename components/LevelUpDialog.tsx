@@ -69,9 +69,9 @@ export function LevelUpDialog({
   const rate = BigInt(l.rateBps);
   const elapsedDays = Math.min(Math.floor((now - l.start) / DAY), l.durationDays);
   const remaining = BigInt(l.durationDays - elapsedDays);
-  // what is paid now comes back over the remaining days, with the rate on it for each of them;
+  // what is added comes back over the remaining days, earning the period's tribute pro-rata for them;
   // the days earned so far are paid out first, the rest of the old payout carries on
-  const extra = (topUp * rate * remaining) / BPS;
+  const extra = (topUp * rate * remaining) / (BPS * BigInt(Math.max(1, l.durationDays)));
   const oldDaily = lockDaily(l);
   const left = lockTotal(l) - lockEarnedThrough(l, elapsedDays);
   const newDaily = remaining > 0n ? (left + topUp + extra) / remaining : oldDaily;
@@ -227,7 +227,7 @@ export function LevelUpDialog({
               {topUp > 0n && (
                 <div className="pay-back">
                   <span>
-                    Extra profit · what you pay now comes back with {bpsToPct(rate)} a day
+                    Extra profit · {bpsToPct(rate)} of what you add, for the days left
                   </span>
                   <span>+{fmtToken(extra, p.decimals)} {p.symbol}</span>
                 </div>

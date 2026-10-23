@@ -10,7 +10,7 @@ import {MockToken} from "../src/mocks/MockToken.sol";
 
 /// Shared deployment + sample config:
 ///   ids 1-2 Legendary, 3-4 Epic, 5-6 Rare, 9-10 Uncommon, everything else Common
-///   Common 5%/day, caps 10 | 20 | 30 | 40 | 50, level fees 0 | 3 | 7 | 12 | 20
+///   Common 5% over the lock period, caps 10 | 20 | 30 | 40 | 50, level fees 0 | 3 | 7 | 12 | 20
 abstract contract Base is Test {
     address owner = makeAddr("owner");
     address alice = makeAddr("alice");
@@ -92,7 +92,7 @@ abstract contract Base is Test {
         pure
         returns (VyraLocking.TierConfig memory c)
     {
-        c.dailyRateBps = rate;
+        c.rateBps = rate;
         for (uint256 i; i < 5; ++i) {
             c.levels[i] = VyraLocking.Level({maxAmount: maxs[i] * 1e18, price: prices[i] * 1e18});
         }

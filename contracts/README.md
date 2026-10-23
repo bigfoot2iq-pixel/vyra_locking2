@@ -3,7 +3,7 @@
 | Contract | Role |
 |---|---|
 | `VyraLocking` | Holds locked NFTs, the on-chain rarity map, 5 levels per tier, lock / renew / unlock with a level chosen per lock, and level-ups on running locks. Level access belongs to the guardian. Never holds tokens. |
-| `VyraRewardPool` | The single treasury. Receives **100%** of lock amounts and level fees plus anyone's deposits, and keeps them; pays holders' daily rewards on the **amount locked**; only the owner can withdraw, and only the **unreserved surplus**. |
+| `VyraRewardPool` | The single treasury. Receives **100%** of lock amounts and level fees plus anyone's deposits, and keeps them; pays each lock its amount back plus the tier's tribute over the **amount locked**; only the owner can withdraw, and only the **unreserved surplus**. |
 
 ## Rules
 
@@ -11,7 +11,7 @@
   - Stored as a packed per-token map: 4 bits per guardian, 18 storage words for all 1,111.
   - The data lives in `data/vyra-rarity.json`, built by `node scripts/build-rarity.mjs <metadata-dir>` from the collection metadata (`ipfs://QmZa81…/{id}`).
   - `setRarityWords` uploads it, and `lockRarity()` freezes it forever.
-- **Levels:** every tier has one `dailyRateBps` and 5 levels, each with a `maxAmount` (the cap) and a `price` (the level fee).
+- **Levels:** every tier has one `rateBps` (its tribute, earned once over the whole lock period) and 5 levels, each with a `maxAmount` (the cap) and a `price` (the level fee).
   - Level 1 is free (`price = 0`).
   - Caps and fees never go down from one level to the next, and there are no gaps.
   - `maxAmount = 0` closes a level. If Level 1 is closed, the whole tier is closed.
@@ -23,9 +23,9 @@
 - **Level up a running lock:** `levelUp(tokenId, newLevel, newAmount)`.
   - Only while the lock is running, and only to a higher level.
   - Pays the fee still due (nothing when the guardian already owns that level) plus the top-up (`newAmount` − current amount) into the pool.
-  - Tribute earned so far is paid out first. The remaining days earn on the new amount, and the end date doesn't change.
+  - Tribute earned so far is paid out first. The top-up earns the period's `rateBps` pro-rata for the days it is actually locked; the end date doesn't change.
   - The pool releases the reserve for the remaining days and reserves them again at the new total.
-- **Rewards:** `amount × dailyRateBps` per **full 24h since lock start**. Unclaimed days accumulate, and earning stops at the period end. Example: 100 locked at 10%/day earns 10 a day, 70 over 7 days.
+- **Rewards:** the tier's `rateBps` is earned **once over the whole period**, not every day. The whole payout (`amount + amount × rateBps`) is spread evenly over the **full 24h days since lock start**. Unclaimed days accumulate, and earning stops at the period end. Example: 100 locked at 10% per period earns 10 over 7 days (110 total, ≈ 15.7 a day), not 70.
 - **Period:** default 7 days. No early unlock. After the end, call `unlock` (returns the NFT and pays out the remaining rewards) or `renew` (pays out the remaining rewards, then takes the new payment and starts a new period; the NFT never moves).
 - **Snapshots:** every config change applies to new locks only. Running locks keep their snapshot.
 - **Switching the token:** the owner can call `setToken` again at any time (e.g. a new token after a sniped launch).

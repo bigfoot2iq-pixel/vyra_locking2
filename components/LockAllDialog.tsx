@@ -58,8 +58,8 @@ export function LockAllDialog({
     const lv = cfg.levels[level];
     const amount = lv.maxAmount;
     const days = p.durationDays ?? 0;
-    const daily = dailyPayout(amount, cfg.dailyRateBps, days);
-    const tribute = lockTribute(amount, cfg.dailyRateBps, days);
+    const daily = dailyPayout(amount, cfg.rateBps, days);
+    const tribute = lockTribute(amount, cfg.rateBps);
     const fee = levelFeeDue(cfg, g.access, level);
     return { g, key, level, amount, fee, daily, tribute, on: picked.has(key) };
   });
@@ -70,7 +70,7 @@ export function LockAllDialog({
   const pay = locked + fees;
   const daily = sum((r) => r.daily);
   const tribute = sum((r) => r.tribute);
-  const bestUpside = rows.reduce((a, r) => a + (maxTribute(p.tiers?.[r.g.tier], p.durationDays) ?? 0n), 0n);
+  const bestUpside = rows.reduce((a, r) => a + (maxTribute(p.tiers?.[r.g.tier]) ?? 0n), 0n);
   const lead = [...chosen].sort((a, b) => b.g.tier - a.g.tier)[0]?.g ?? lockable[0];
   const leadImage = useGuardianImage(lead?.id ?? 0n);
 

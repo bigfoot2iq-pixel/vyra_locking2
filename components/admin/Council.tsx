@@ -129,7 +129,7 @@ function PoolCard({ p }: { p: Protocol }) {
   // tiers whose biggest single lock the free fund couldn't back right now; the lock's own payment
   // joins the fund before its payout is reserved, so only its tribute (the profit) needs covering
   const uncovered = (p.tiers ?? [])
-    .map((t, i) => ({ i, need: maxTribute(t, p.durationDays) }))
+    .map((t, i) => ({ i, need: maxTribute(t) }))
     .filter((t) => t.need !== undefined && t.need > free);
   const fmt = (v: bigint | undefined) => fmtToken(v, p.decimals, 2);
   const usdOf = (v: bigint | undefined) =>
@@ -140,9 +140,10 @@ function PoolCard({ p }: { p: Protocol }) {
       <h3>Reward pool</h3>
       <p>
         Every lock payment (amount + level fee) lands here, next to your seed and deposits. Over the lock the amount goes
-        back to the holder in equal daily payouts, plus the tier&apos;s daily rate on it: that tribute is the profit, and it
-        is paid from the free fund (your seed). The level fee stays in the pool. The full payout is reserved when a lock
-        starts. Only the free fund can back new locks or be withdrawn by the owner; reserved payouts never can.
+        back to the holder in equal daily payouts, plus the tier&apos;s tribute on it, earned once for the whole lock: that
+        tribute is the profit, and it is paid from the free fund (your seed). The level fee stays in the pool. The full
+        payout is reserved when a lock starts. Only the free fund can back new locks or be withdrawn by the owner; reserved
+        payouts never can.
       </p>
       {p.poolBalance === 0n && (
         <p className="notice notice-warn">The pool is empty. Add a {p.symbol} balance below so holders who lock can be paid.</p>
@@ -283,9 +284,9 @@ interface TierDraft {
   levels: LevelDraft[];
 }
 
-function validateTier(t: { dailyRateBps?: number; levels: { maxAmount?: bigint; price?: bigint }[] }) {
+function validateTier(t: { rateBps?: number; levels: { maxAmount?: bigint; price?: bigint }[] }) {
   const errs: string[] = Array(LEVEL_COUNT).fill("");
-  if (t.dailyRateBps === undefined || t.dailyRateBps > 10_000) errs[0] = "daily % must be 0–100";
+  if (t.rateBps === undefined || t.rateBps > 10_000) errs[0] = "tribute % must be 0–100";
   t.levels.forEach((lv, i) => {
     if (lv.maxAmount === undefined || lv.price === undefined) return (errs[i] = "invalid number");
     if (i === 0 && lv.price !== 0n) return (errs[i] = "level 1 is free");
@@ -307,7 +308,7 @@ function TiersCard({ p }: { p: Protocol }) {
   const draft: TierDraft[] | undefined =
     edits ??
     p.tiers?.map((t) => ({
-      rate: String(t.dailyRateBps / 100),
+      rate: String(t.rateBps / 100),
       levels: t.levels.map((lv) => ({
         max: formatUnits(lv.maxAmount, p.decimals),
         price: formatUnits(lv.price, p.decimals),
@@ -316,7 +317,7 @@ function TiersCard({ p }: { p: Protocol }) {
   if (!draft) return null;
 
   const parsed = draft.map((t) => ({
-    dailyRateBps: pctToBps(t.rate),
+    rateBps: pctToBps(t.rate),
     levels: t.levels.map((lv) => ({
       maxAmount: toUnits(lv.max || "0", p.decimals),
       price: toUnits(lv.price || "0", p.decimals),
@@ -339,11 +340,11 @@ function TiersCard({ p }: { p: Protocol }) {
     <div className="admin-card plate wide">
       <h3>Tiers &amp; levels</h3>
       <p>
-        Each rarity tier has one daily tribute % and 5 levels. A level caps how much a holder may lock; the holder picks it
-        when locking and pays the amount into the reward fund, and all of it comes back in daily payouts over the lock.
-        Level 1 is free. Max 0 closes a level. The level fee buys that level for the guardian for good and stays in the
-        pool. Tribute (daily % × days of the amount locked) is paid on top from the free fund, so every % here is a cost to
-        the fund.
+        Each rarity tier has one tribute % for the whole lock and 5 levels. A level caps how much a holder may lock; the
+        holder picks it when locking and pays the amount into the reward fund, and all of it comes back in daily payouts
+        over the lock. Level 1 is free. Max 0 closes a level. The level fee buys that level for the guardian for good and
+        stays in the pool. Tribute (that % of the amount locked, earned once per lock, not per day) is paid on top from the
+        free fund, so every % here is a cost to the fund.
         {usd !== undefined && (
           <>
             {" "}
@@ -354,7 +355,7 @@ function TiersCard({ p }: { p: Protocol }) {
 
       <div className="tier-tabs" role="tablist">
         {TIERS.map((t, i) => {
-          const full = Number(draft[i].rate) * days;
+          const ratePct = Number(draft[i].rate);
           const bad = errors[i].some((e) => e);
           return (
             <button
@@ -366,7 +367,7 @@ function TiersCard({ p }: { p: Protocol }) {
               onClick={() => setOpen(i)}
             >
               {t.name}
-              <span className={`pill ${bad ? "pill-bad" : ""}`}>{bad ? "fix" : `${Number.isFinite(full) ? full : "—"}%`}</span>
+              <span className={`pill ${bad ? "pill-bad" : ""}`}>{bad ? "fix" : `${Number.isFinite(ratePct) ? ratePct : "—"}%`}</span>
             </button>
           );
         })}
@@ -375,17 +376,17 @@ function TiersCard({ p }: { p: Protocol }) {
       {(() => {
         const ti = open;
         const t = draft[ti];
-        const full = Number(t.rate) * days;
+        const ratePct = Number(t.rate);
         return (
           <div className="tier-editor" style={{ ["--tier" as string]: TIERS[ti].color }}>
             <div className="admin-actions" style={{ marginBottom: 14 }}>
               <label className="field-label" htmlFor={`rate-${ti}`} style={{ margin: 0 }}>
-                Daily tribute %
+                Tribute % per lock
               </label>
               <input id={`rate-${ti}`} className="input input-sm" style={{ width: 100 }} value={t.rate} onChange={(e) => setRate(ti, e.target.value)} />
               <span className="faint" style={{ fontSize: "0.8rem" }}>
-                = {Number.isFinite(full) ? full : "—"}% over {days} days{" "}
-                <span className="pill">paid from the free fund</span>
+                = {Number.isFinite(ratePct) ? ratePct : "—"}% over {days} days{" "}
+                <span className="pill">earned once, paid from the free fund</span>
               </span>
             </div>
             <div className="table-scroll">

@@ -24,7 +24,8 @@ export interface Level {
 }
 
 export interface TierConfig {
-  dailyRateBps: number;
+  /** Tribute over the whole lock period, in basis points of the locked amount (earned once). */
+  rateBps: number;
   levels: readonly Level[];
 }
 
@@ -178,19 +179,19 @@ export function levelFeeDue(cfg: TierConfig | undefined, access: LevelAccess | u
   return price > paid ? price - paid : 0n;
 }
 
-/** Tribute of a whole lock: its daily rate on the amount it locked, times its days. The profit. */
-export function lockTribute(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return (amount * BigInt(rateBps) * BigInt(days)) / 10_000n;
+/** Tribute of a whole lock: the tier's rate on the amount it locked, earned once over the period. */
+export function lockTribute(amount: bigint, rateBps: number | bigint): bigint {
+  return (amount * BigInt(rateBps)) / 10_000n;
 }
 
 /** Everything a lock pays back over its period: the locked amount plus its tribute. */
-export function lockPayout(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return amount + lockTribute(amount, rateBps, days);
+export function lockPayout(amount: bigint, rateBps: number | bigint): bigint {
+  return amount + lockTribute(amount, rateBps);
 }
 
 /** What a lock pays each day: its whole payout spread evenly over its days (the pool's `rewardPerDay`). */
 export function dailyPayout(amount: bigint, rateBps: number | bigint, days: number | bigint): bigint {
-  return BigInt(days) > 0n ? lockPayout(amount, rateBps, days) / BigInt(days) : 0n;
+  return BigInt(days) > 0n ? lockPayout(amount, rateBps) / BigInt(days) : 0n;
 }
 
 /** The biggest lock a tier allows: its top level's cap + fee, what it pays back and pays a day. */
@@ -198,11 +199,18 @@ export function bestLock(cfg: TierConfig | undefined, durationDays: number | big
   const top = topLevel(cfg);
   if (!cfg || top < 0 || durationDays === undefined) return undefined;
   const lv = cfg.levels[top];
-  const args = [lv.maxAmount, cfg.dailyRateBps, durationDays] as const;
-  return { level: top, paid: lv.maxAmount + lv.price, tribute: lockTribute(...args), payout: lockPayout(...args), daily: dailyPayout(...args) };
+  return {
+    level: top,
+    paid: lv.maxAmount + lv.price,
+    tribute: lockTribute(lv.maxAmount, cfg.rateBps),
+    payout: lockPayout(lv.maxAmount, cfg.rateBps),
+    daily: dailyPayout(lv.maxAmount, cfg.rateBps, durationDays),
+  };
 }
 
 /** Most tribute (profit on top of the payment) one new lock in this tier can earn. */
-export function maxTribute(cfg: TierConfig | undefined, durationDays: number | bigint | undefined): bigint | undefined {
-  return bestLock(cfg, durationDays)?.tribute;
+export function maxTribute(cfg: TierConfig | undefined): bigint | undefined {
+  const top = topLevel(cfg);
+  if (!cfg || top < 0) return undefined;
+  return lockTribute(cfg.levels[top].maxAmount, cfg.rateBps);
 }

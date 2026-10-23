@@ -240,19 +240,19 @@ export function unclaimedDays(g: Guardian, now: number): number | undefined {
 
 /** Everything the lock pays back over its period: the locked amount plus its tribute, level-ups included. */
 export function lockTotal(l: LockInfo): bigint {
-  return l.schedule ? l.schedule.before + l.schedule.total : lockPayout(l.amount, l.rateBps, l.durationDays);
+  return l.schedule ? l.schedule.before + l.schedule.total : lockPayout(l.amount, l.rateBps);
 }
 
 /** What the lock pays a day now (after a level-up the remaining days pay more). */
 export function lockDaily(l: LockInfo): bigint {
   if (l.schedule) return l.schedule.total / BigInt(Math.max(1, l.durationDays - l.schedule.from));
-  return lockPayout(l.amount, l.rateBps, l.durationDays) / BigInt(Math.max(1, l.durationDays));
+  return lockPayout(l.amount, l.rateBps) / BigInt(Math.max(1, l.durationDays));
 }
 
 /** Paid out (or claimable) through day `day`, as the pool slices it. */
 export function lockEarnedThrough(l: LockInfo, day: number): bigint {
   const d = Math.min(Math.max(0, day), l.durationDays);
-  const s = l.schedule ?? { total: lockPayout(l.amount, l.rateBps, l.durationDays), from: 0, before: 0n };
+  const s = l.schedule ?? { total: lockPayout(l.amount, l.rateBps), from: 0, before: 0n };
   if (d <= s.from) return s.before; // days before a level-up: already paid out in full by then
   return s.before + (s.total * BigInt(d - s.from)) / BigInt(l.durationDays - s.from);
 }

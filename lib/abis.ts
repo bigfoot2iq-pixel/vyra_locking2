@@ -804,7 +804,7 @@ export const vyraLockingAbi = [
         "internalType": "struct VyraLocking.TierConfig",
         "components": [
           {
-            "name": "dailyRateBps",
+            "name": "rateBps",
             "type": "uint16",
             "internalType": "uint16"
           },
@@ -841,7 +841,7 @@ export const vyraLockingAbi = [
         "internalType": "struct VyraLocking.TierConfig[5]",
         "components": [
           {
-            "name": "dailyRateBps",
+            "name": "rateBps",
             "type": "uint16",
             "internalType": "uint16"
           },
@@ -898,7 +898,7 @@ export const vyraLockingAbi = [
         "internalType": "struct VyraLocking.TierConfig",
         "components": [
           {
-            "name": "dailyRateBps",
+            "name": "rateBps",
             "type": "uint16",
             "internalType": "uint16"
           },
@@ -935,7 +935,7 @@ export const vyraLockingAbi = [
         "internalType": "struct VyraLocking.TierConfig[5]",
         "components": [
           {
-            "name": "dailyRateBps",
+            "name": "rateBps",
             "type": "uint16",
             "internalType": "uint16"
           },
@@ -1324,7 +1324,7 @@ export const vyraLockingAbi = [
         "internalType": "uint8"
       },
       {
-        "name": "dailyRateBps",
+        "name": "rateBps",
         "type": "uint16",
         "indexed": false,
         "internalType": "uint16"

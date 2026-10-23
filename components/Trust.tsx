@@ -10,7 +10,7 @@ import { CountUp } from "./fx/CountUp";
 const PROMISES = [
   {
     title: "Everything you lock comes back",
-    body: "The amount you lock goes into the reward pool. Each full day of the lock pays an equal share of it back plus your rarity's rate on it.",
+    body: "The amount you lock goes into the reward pool. Each full day of the lock pays an equal share of it back, with your rarity's tribute on it earned once over the whole lock.",
   },
   {
     title: "A level fee buys the level for good",
@@ -50,8 +50,8 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
   const exLv = cfg && top >= 0 ? cfg.levels[top] : undefined;
   const exPaid = exLv ? exLv.maxAmount + exLv.price : undefined;
   const exDays = p.durationDays ?? 0;
-  const exDaily = exLv && cfg ? dailyPayout(exLv.maxAmount, cfg.dailyRateBps, exDays) : undefined;
-  const exTribute = exLv && cfg ? lockTribute(exLv.maxAmount, cfg.dailyRateBps, exDays) : undefined;
+  const exDaily = exLv && cfg ? dailyPayout(exLv.maxAmount, cfg.rateBps, exDays) : undefined;
+  const exTribute = exLv && cfg ? lockTribute(exLv.maxAmount, cfg.rateBps) : undefined;
 
   return (
     <section className="section" id="trust">
@@ -65,8 +65,9 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
       <div className="trust plate">
         <p className="trust-lead">
           The amount you lock for a period goes to the reward pool. Every full day of the lock pays you an equal share of it
-          back plus your rarity&apos;s daily rate on it, so by the last day you have all of it back with profit on top, and
-          your guardian comes home. A level fee buys the level for that guardian and stays in the pool.
+          back plus your rarity&apos;s tribute on it, earned once for the whole lock, so by the last day you have all of it
+          back with profit on top, and your guardian comes home. A level fee buys the level for that guardian and stays in
+          the pool.
         </p>
 
         {exLv && exPaid !== undefined && exDaily !== undefined && exTribute !== undefined && cfg && exPaid > 0n && (
@@ -87,7 +88,7 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
                 +{fmtToken(exDaily, p.decimals, 2)} <small>{p.symbol}</small>
               </span>
               <span className="trust-flow-s">
-                a {p.durationDays}th of what you locked back + {bpsToPct(cfg.dailyRateBps)} of it, claim any time
+                your whole payout in {p.durationDays} equal parts: the amount back + {bpsToPct(cfg.rateBps)} tribute
               </span>
             </li>
             <li>
@@ -97,7 +98,7 @@ export function Trust({ protocol: p }: { protocol: Protocol }) {
               </span>
               <span className="trust-flow-s">
                 your {fmtToken(exLv.maxAmount, p.decimals, 2)} back + {fmtToken(exTribute, p.decimals, 2)} profit (
-                {bpsToPct(cfg.dailyRateBps * Number(p.durationDays ?? 0))}), and your guardian
+                {bpsToPct(cfg.rateBps)}), and your guardian
               </span>
             </li>
           </ol>

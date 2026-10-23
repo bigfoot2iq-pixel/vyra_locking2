@@ -6,13 +6,14 @@ import {VyraLocking} from "../src/VyraLocking.sol";
 import {IVyraLocking} from "../src/interfaces/IVyraLocking.sol";
 import {Base} from "./Base.t.sol";
 
-/// Leveling up a running lock: Common 5%/day, L1 up to 10 free, L2 up to 20 fee 3, L3 up to 30 fee 7,
-/// L4 up to 40 fee 12. The fee buys the level for the guardian; the top-up comes back with tribute.
+/// Leveling up a running lock: Common 5% over the period, L1 up to 10 free, L2 up to 20 fee 3,
+/// L3 up to 30 fee 7, L4 up to 40 fee 12. The fee buys the level for the guardian; the top-up comes
+/// back with its pro-rata share of the tribute.
 contract LevelUpTest is Base {
     function test_levelUp_settlesThenEarnsOnNewAmount() public {
-        lockAs(alice, COMMON_ID, 10e18, 0); // 13.5 over 7 days
+        lockAs(alice, COMMON_ID, 10e18, 0); // 10.5 over 7 days
         vm.warp(block.timestamp + 3 days);
-        uint256 earned = uint256(13.5e18) * 3 / 7;
+        uint256 earned = uint256(10.5e18) * 3 / 7;
 
         uint256 aliceBefore = token.balanceOf(alice);
         uint256 poolBefore = token.balanceOf(address(pool));
@@ -25,24 +26,27 @@ contract LevelUpTest is Base {
         // alice: -27 paid, + the 3 earned days paid out
         assertEq(aliceBefore - token.balanceOf(alice), 27e18 - earned);
         assertEq(token.balanceOf(address(pool)) - poolBefore, 27e18 - earned);
-        // what was left of the 13.5, plus the 20 added back with 4 days at 5% on it (4)
-        assertEq(pool.totalReserved(), 13.5e18 - earned + 24e18);
+        // the 20 added earns the period's 5% for the 4 days it is locked
+        uint256 addedTribute = uint256(20e18) * 500 * 4 / 70_000;
+        uint256 wholePayout = 10.5e18 + 20e18 + addedTribute;
+        // what was left of the 10.5, plus the 20 added back with its pro-rata tribute
+        assertEq(pool.totalReserved(), 10.5e18 - earned + 20e18 + addedTribute);
         assertEq(locking.totalLevelPayments(), 7e18);
         assertEq(locking.totalLockPayments(), 30e18);
 
         vm.warp(block.timestamp + 4 days);
-        assertEq(pool.pendingOf(COMMON_ID), 37.5e18 - earned);
+        assertEq(pool.pendingOf(COMMON_ID), wholePayout - earned);
         aliceBefore = token.balanceOf(alice);
         vm.prank(alice);
         locking.unlock(ids(COMMON_ID));
-        assertEq(token.balanceOf(alice) - aliceBefore, 37.5e18 - earned);
+        assertEq(token.balanceOf(alice) - aliceBefore, wholePayout - earned);
         assertEq(pool.totalReserved(), 0);
-        // 30 paid back + tribute 3.5 (10 for 7 days) + 4 (20 for 4 days)
-        assertEq(pool.totalPaidOut(), 37.5e18);
+        // 30 paid back + 0.5 tribute on the 10 + the 20 added with its pro-rata tribute
+        assertEq(pool.totalPaidOut(), wholePayout);
         (uint128 total, uint16 from, uint128 before) = pool.scheduleOf(l.lockId);
         assertEq(from, 3);
         assertEq(before, earned, "the 3 days paid before the level-up");
-        assertEq(uint256(before) + total, 37.5e18, "the lock's whole payout");
+        assertEq(uint256(before) + total, wholePayout, "the lock's whole payout");
     }
 
     function test_levelUp_paysOnlyTheFeeDifference() public {
@@ -146,7 +150,7 @@ contract LevelUpTest is Base {
         locking.levelUp(COMMON_ID, 1, 20e18);
         locking.levelUp(COMMON_ID, 3, 40e18);
         vm.stopPrank();
-        assertEq(pool.totalReserved(), 54e18, "40 back plus 7 days at 5% on the amounts added");
+        assertEq(pool.totalReserved(), 42e18, "40 back plus 5% of the amounts added over the period");
         assertEq(locking.totalLevelPayments(), 12e18);
     }
 }

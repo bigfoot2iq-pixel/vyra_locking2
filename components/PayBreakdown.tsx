@@ -3,8 +3,8 @@ import { fmtToken, usdOf } from "@/lib/format";
 
 /**
  * What a lock costs and what it pays, in the same words everywhere: the amount goes to the pool and
- * comes back over the lock, plus the tier's daily rate on it. The level fee buys the level and
- * stays in the pool: it is not paid back.
+ * comes back over the lock, plus the tier's tribute on it, earned once for the whole lock. The level
+ * fee buys the level and stays in the pool: it is not paid back.
  */
 export function PayBreakdown({
   protocol: p,

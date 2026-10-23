@@ -67,12 +67,12 @@ export function LockDialog({
   const pct = max > min && amount !== undefined ? Number(((amount - min) * 1000n) / (max - min)) / 10 : 0;
 
   const days = BigInt(p.durationDays ?? 0);
-  const rate = BigInt(cfg?.dailyRateBps ?? 0);
+  const rate = BigInt(cfg?.rateBps ?? 0);
   const a = amount ?? 0n;
   const pay = a + fee;
-  // everything the lock puts in comes back, plus the rate on the locked amount each day, in equal daily payouts
+  // everything the lock puts in comes back, plus the period's tribute on the locked amount, in equal daily payouts
   const daily = dailyPayout(a, rate, days);
-  const total = lockTribute(a, rate, days);
+  const total = lockTribute(a, rate);
 
   // Approvals made in this dialog count right away, even if the RPC hasn't caught up yet.
   const [granted, setGranted] = useState(false);
@@ -178,7 +178,7 @@ export function LockDialog({
       title={`Guardian #${g.id.toString().padStart(4, "0")}`}
       kicker={
         <>
-          ◆ {mode === "lock" ? "Lock" : "Renew lock"} · {tierOf(g.tier).name} · {cfg ? bpsToPct(cfg.dailyRateBps) : "—"} a day
+          ◆ {mode === "lock" ? "Lock" : "Renew lock"} · {tierOf(g.tier).name} · {cfg ? bpsToPct(cfg.rateBps) : "—"} per lock
         </>
       }
       image={image}

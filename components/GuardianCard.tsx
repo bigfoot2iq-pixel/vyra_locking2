@@ -84,7 +84,7 @@ export function GuardianCard({ guardian: g, protocol: p, now, index, busy, usd, 
               <span className="card-row-end">
                 <span
                   className="num"
-                  title={`Your ${fmtToken(paidIn, p.decimals)} ${p.symbol} back plus ${bpsToPct(l.rateBps)} a day on it, spread over ${plural(l.durationDays, "day")}`}
+                  title={`Your ${fmtToken(paidIn, p.decimals)} ${p.symbol} back plus ${bpsToPct(l.rateBps)} tribute on it, spread over ${plural(l.durationDays, "day")}`}
                 >
                   {ended
                     ? `${fmtToken(lockTotal, p.decimals)} ${p.symbol}`

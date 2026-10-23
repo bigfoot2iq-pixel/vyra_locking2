@@ -21,14 +21,16 @@ interface IRewardPool {
 /// @title VyraLocking
 /// @notice Holders lock a VYRA guardian for a fixed period and pay a level-bounded amount of the token
 ///         into the {VyraRewardPool}. Over the period the pool pays the locked amount back plus the
-///         tier's daily rate on it, in equal daily parts. The guardian comes back when the lock closes.
+///         tier's rate on it (earned once for the whole period, not every day), in equal daily parts.
+///         The guardian comes back when the lock closes.
 /// @dev Tiers match the collection's "Rarity" trait: 0 Common, 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary.
 ///      Each token's tier is stored in a packed on-chain map (4 bits per token) uploaded by the owner.
 ///      Each tier has 5 levels (0-based here, shown as 1-5). A level sets the cap on the lock amount:
 ///      the holder may lock anything from 1 up to the level's cap.
 ///      The holder picks the level when locking or renewing: level 1 is free, a higher level costs
 ///      its price on top of the locked amount. A running lock can also level up: the holder pays
-///      the fee still due plus a top-up, and the remaining days earn on the bigger total.
+///      the fee still due plus a top-up, and the remaining days earn on the bigger total (the
+///      top-up's tribute is pro-rata of the days left in the period).
 ///      Level access belongs to the guardian, not to a lock: the fee for a level is paid once and
 ///      stays unlocked for that NFT, through every later lock and renewal (see {Access}).
 ///      The locked amount goes to the pool and comes back with the daily payouts; the level fee goes
@@ -46,7 +48,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     uint8 public constant LEVEL_COUNT = 5;
     uint16 public constant BPS = 10_000;
     uint16 public constant MAX_DURATION_DAYS = 365;
-    uint16 public constant MAX_RATE_BPS = 10_000; // 100% of the lock per day
+    uint16 public constant MAX_RATE_BPS = 10_000; // 100% of the lock over its period
     /// @dev Rarity map packing: 64 tokens per word, 4 bits each.
     uint256 public constant TIERS_PER_WORD = 64;
 
@@ -56,7 +58,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     struct TierConfig {
-        uint16 dailyRateBps;
+        uint16 rateBps; // tribute over the whole period, in basis points of the locked amount
         Level[LEVEL_COUNT] levels;
     }
 
@@ -120,7 +122,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     event TokenSet(address indexed previous, address indexed token);
     event DurationSet(uint16 durationDays);
-    event TierConfigSet(uint8 indexed tier, uint16 dailyRateBps);
+    event TierConfigSet(uint8 indexed tier, uint16 rateBps);
     event RarityWordsSet(uint256 startWord, uint256 count);
     event RarityLocked();
 
@@ -164,7 +166,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     /// @param levels 0-based level per token (UI level - 1). Level 1 is free; a higher level costs
     ///        its price on top of the amount, unless the guardian already has that level unlocked.
     /// @param amounts must sit inside the chosen level's cap for the token's tier. Paid into the
-    ///        pool; each day earns the tier's rate on the amount.
+    ///        pool; over the period it earns the tier's rate on the amount.
     /// @dev Requires NFT approval (setApprovalForAll) and token allowance for sum(amounts + fees).
     function lock(uint256[] calldata tokenIds, uint256[] calldata amounts, uint8[] calldata levels)
         external
@@ -209,7 +211,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
     ///         Pays: (level fee still due) + (newAmount - current amount), into the pool.
     ///         The fee is only due when the guardian has not unlocked that level yet; an unlocked
     ///         level is free. Days earned so far are paid out first. What is added comes back over
-    ///         the remaining days, with tribute on it for those days.
+    ///         the remaining days, with its pro-rata share of the period's tribute on it.
     ///         The end date does not change. Only while the lock is running.
     /// @param newLevel 0-based target level, above the current one.
     /// @param newAmount total locked after the level-up: inside the new level's cap and not below
@@ -548,7 +550,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             owner: msg.sender,
             tier: tier,
             level: level,
-            rateBps: cfg.dailyRateBps,
+            rateBps: cfg.rateBps,
             durationDays: d,
             start: uint40(block.timestamp),
             lockId: lockId,
@@ -579,7 +581,7 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setTierConfig(uint8 tier, TierConfig calldata cfg) internal {
         if (tier >= TIER_COUNT) revert InvalidTier(tier);
-        if (cfg.dailyRateBps > MAX_RATE_BPS) revert InvalidBps(cfg.dailyRateBps);
+        if (cfg.rateBps > MAX_RATE_BPS) revert InvalidBps(cfg.rateBps);
         if (cfg.levels[0].price != 0) revert InvalidTierConfig(tier, 0);
         for (uint8 i; i < LEVEL_COUNT; ++i) {
             Level calldata lv = cfg.levels[i];
@@ -593,6 +595,6 @@ contract VyraLocking is IVyraLocking, Ownable2Step, Pausable, ReentrancyGuard {
             }
         }
         _tiers[tier] = cfg;
-        emit TierConfigSet(tier, cfg.dailyRateBps);
+        emit TierConfigSet(tier, cfg.rateBps);
     }
 }

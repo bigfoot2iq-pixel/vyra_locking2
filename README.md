@@ -1,6 +1,6 @@
 # VYRA · The Keep
 
-NFT locking and daily-reward dApp for the [VYRA](https://www.vyranfts.xyz/) guardians on Ink. Holders lock a guardian and pay tokens (the amount plus a one-off level fee) into the reward pool; every day of the lock pays a daily tribute on the amount locked, and the guardian comes back when the lock ends. A level fee unlocks that level for the guardian for good.
+NFT locking and daily-payout dApp for the [VYRA](https://www.vyranfts.xyz/) guardians on Ink. Holders lock a guardian and pay tokens (the amount plus a one-off level fee) into the reward pool; the tier's tribute on the amount locked is earned once over the lock and paid out in equal daily parts, and the guardian comes back when the lock ends. A level fee unlocks that level for the guardian for good.
 
 - `contracts/`: Foundry project (`VyraLocking` + `VyraRewardPool`). See [contracts/README.md](contracts/README.md) for the rules and the pool security model.
   - `/#trust` on the site shows holders the same guarantees, live pool numbers and the verified contracts.
